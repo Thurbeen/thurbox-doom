@@ -15,8 +15,19 @@
 # choose. It matches the pane's own `order = 40` here so the two read alike.
 #
 # Only Lua is delivered: every destination a package declares must end in `.lua`,
-# so `wad/freedoom1.wad` is NOT installed by this. Keep the clone (or move the WAD
-# somewhere of your own) and name it in the plugin's `wad` setting. See the README.
+# and the delivery path decodes what it fetches as UTF-8, so `wad/freedoom1.wad`
+# and the port cannot travel with this package at all today.
+#
+# The plugin therefore expects them in a directory of its own inside the interface
+# directory, and needs no settings once they are there:
+#
+#     <interface dir>/doom/pi-doom          the port, or a wrapper for it
+#     <interface dir>/doom/freedoom1.wad    the WAD
+#
+# If `plugin install` grows payload delivery — bytes rather than text, an
+# executable bit, a checksum, confined to `<name>/` the way modules are confined
+# to `lib/<name>/` — those two files are what this package would declare, and
+# nothing in `doom.lua` would have to change. See the README.
 name = "doom"
 description = "DOOM in a pane: frame a terminal DOOM port in a program surface"
 version = "v0.2.0"
