@@ -53,6 +53,14 @@ local PANE = "doom"
 --- Deliberate — an engine is a GPL binary or a build tree with its own package
 --- manager, and neither belongs in a pane's repository.
 local CLONE_DIR = "thurbox-doom"
+
+--- The WAD this repository ships, as the `wad` setting's DECLARED default.
+---
+--- Relative, and declared rather than resolved at read time, because the settings modal
+--- shows a declaration: an empty default reads as "no WAD" to anyone who has not read
+--- the README, which is the wrong thing to tell them about the one file this package
+--- delivers. Relative to the clone, so it stays true whatever the interface directory
+--- turns out to be — resolution happens below.
 local PAYLOAD_WAD = "wad/freedoom1.wad"
 
 --- A path inside this repository's working copy, or nil when the kernel has not
@@ -75,6 +83,11 @@ local PAYLOAD_WAD = "wad/freedoom1.wad"
 --- stripping one anywhere else would rename somebody's directory. Written down because
 --- a separator assumption has twice shipped green from Linux in the kernel this runs
 --- on — the second time it broke every repository install.
+--- Is this path already absolute? POSIX, a Windows drive letter, or a UNC share.
+local function absolute(path)
+  return path:match("^/") ~= nil or path:match("^%a:[/\\]") ~= nil or path:match("^\\\\") ~= nil
+end
+
 local function payload(name)
   local dir = thurbox and thurbox.ui_dir
   if type(dir) ~= "string" or dir == "" then
@@ -126,12 +139,18 @@ local function args()
       argv[#argv + 1] = word
     end
   end
-  -- Unset means the delivered WAD, if there is anywhere for one to have been
-  -- delivered to. Failing that, nothing: every port worth running looks for a WAD
-  -- of its own, and a made-up path would turn "no WAD" into "wrong WAD".
-  local wad = setting("wad", "")
-  if type(wad) ~= "string" or wad == "" then
-    wad = payload(PAYLOAD_WAD)
+  -- An absolute WAD is used as given; anything else is resolved inside this plugin's
+  -- own clone, which is what makes the declared default a path a reader can recognise
+  -- rather than an empty box. With no interface directory published there is nowhere
+  -- for a relative one to resolve against, so the argument is omitted rather than
+  -- guessed — every port worth running looks for a WAD of its own, and a made-up path
+  -- turns "no WAD" into "wrong WAD".
+  local wad = setting("wad", PAYLOAD_WAD)
+  if type(wad) ~= "string" or wad:match("^%s*$") then
+    wad = PAYLOAD_WAD
+  end
+  if not absolute(wad) then
+    wad = payload(wad)
   end
   if wad and wad ~= "" then
     argv[#argv + 1] = wad
@@ -294,7 +313,12 @@ end
 --- argument the program will be handed.
 local function needs_program(ctx)
   local width = math.max(0, (ctx.width or 0) - 6)
-  local wad = payload(PAYLOAD_WAD)
+  -- The resolved path, not the declaration: this line exists to be read and copied.
+  local wad = nil
+  local argv = args()
+  if #argv > 0 then
+    wad = argv[#argv]
+  end
   local children = {
     blank(),
     line({ { text = "  Point this pane at a terminal DOOM.", style = { fg = theme.text } } }),
@@ -465,8 +489,8 @@ return {
     },
     {
       id = "wad",
-      desc = "WAD, passed as the last argument. Empty = the one in this plugin's own clone",
-      default = "",
+      desc = "WAD, passed as the last argument. A relative path resolves inside this plugin's clone",
+      default = PAYLOAD_WAD,
     },
     {
       id = "args",
