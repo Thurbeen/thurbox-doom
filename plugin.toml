@@ -1,36 +1,25 @@
-# The DOOM pane, as an installable package.
+# The DOOM pane.
 #
-# From a clone:
+# This plugin carries a payload — a launcher and a WAD — so it is installed by
+# CLONING it, which brings everything the repository holds:
 #
-#     thurbox-cli plugin install ~/src/thurbox-doom
+#     thurbox-cli plugin install git+https://github.com/Thurbeen/thurbox-doom
 #
-# or straight from GitHub's raw host, with the ref pinned in the URL:
+# The clone lands at `<interface dir>/thurbox-doom/`, keeps its `.git` (so `update`
+# is a fetch and your edits are protected), and `install` finds the pane itself:
+# the single `.lua` under `plugins/`. The lock records the commit, which is why
+# there is nothing to checksum here.
 #
-#     thurbox-cli plugin install https://raw.githubusercontent.com/Thurbeen/thurbox-doom/main
+# NOT `thurbox-cli plugin install doom` — a bare name resolves into the thurbox
+# repository's own examples, which is a different, smaller pane.
 #
-# NOT `thurbox-cli plugin install doom` — a bare name resolves to `ui-plugins/doom`
-# in the thurbox repository, which is the kernel's own smaller example pane.
-#
-# `--as plugins/NN_doom.lua` moves it; the number is load order and yours to
-# choose. It matches the pane's own `order = 40` here so the two read alike.
-#
-# Only Lua is delivered: every destination a package declares must end in `.lua`,
-# and the delivery path decodes what it fetches as UTF-8, so `wad/freedoom1.wad`
-# and the port cannot travel with this package at all today.
-#
-# The plugin therefore expects them in a directory of its own inside the interface
-# directory, and needs no settings once they are there:
-#
-#     <interface dir>/doom/pi-doom          the port, or a wrapper for it
-#     <interface dir>/doom/freedoom1.wad    the WAD
-#
-# If `plugin install` grows payload delivery — bytes rather than text, an
-# executable bit, a checksum, confined to `<name>/` the way modules are confined
-# to `lib/<name>/` — those two files are what this package would declare, and
-# nothing in `doom.lua` would have to change. See the README.
+# This manifest is for the other install path: a bare URL or a local path, which
+# fetches the files it names and cannot carry the WAD or the launcher (that path is
+# text-only). It is kept so `plugin install <path-to-this-clone>` still delivers a
+# working pane — configured by hand — but `git+` is the one to use.
 name = "doom"
-description = "DOOM in a pane: frame a terminal DOOM port in a program surface"
-version = "v0.2.0"
+description = "DOOM in a pane: a program surface, a launcher and a WAD"
+version = "v0.3.0"
 requires_thurbox = ">=2.0"
 
-pane = { source = "doom.lua", path = "plugins/40_doom.lua" }
+pane = { source = "plugins/40_doom.lua", path = "plugins/40_doom.lua" }

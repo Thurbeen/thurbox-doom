@@ -5,17 +5,18 @@ program pane, frames it, and owns the key rules. The kernel runs the program in 
 real terminal, resizes it to the rect and parses its output into cells — the
 plugin never sees a frame.
 
-A freely-redistributable WAD ships in this repository, and the plugin expects
-both it and the port in **a directory of its own inside your interface
-directory** — so once they are there it needs no configuration at all:
+Everything it needs ships with it. `thurbox-cli plugin install git+…` clones this
+repository into your interface directory, which brings the launcher and a
+freely-redistributable WAD along with the pane — so there is nothing to configure
+and nothing to fetch by hand:
 
 ```text
-~/.config/thurbox/ui/doom/pi-doom          the port, or a wrapper for it
-~/.config/thurbox/ui/doom/freedoom1.wad    the WAD
+<interface dir>/thurbox-doom/plugins/40_doom.lua   the pane
+<interface dir>/thurbox-doom/bin/doom              the launcher, executable
+<interface dir>/thurbox-doom/wad/freedoom1.wad     the WAD
 ```
 
-Getting them there is still two commands rather than part of `plugin install`;
-[why](#why-the-payload-is-not-installed-for-you) is at the end.
+Grant it the `program` capability and press nothing: it starts.
 
 ---
 
@@ -37,8 +38,8 @@ There is no `thurbox2` binary.
 
 **The plugin API is explicitly unstable** (see the banner atop `docs/PLUGINS.md`),
 and **plugins are trusted code** — this one asks for a capability that holds a
-process open on your keystrokes. Read it before you install it: 366 lines, 110 of
-them comments.
+process open on your keystrokes. Read it before you install it: 464 lines, 147 of
+them comments — and `bin/doom`, which is 60 lines of shell.
 
 ## What it does
 
@@ -62,67 +63,48 @@ be a coding agent to borrow the one field of the session model that spawns a pty
 That is gone. The program, its arguments and the WAD path are now **settings on
 this plugin**, and the kernel starts the process itself.
 
-## Prerequisites
+## What it runs
 
-### A terminal DOOM that paints text cells
+The pane frames whatever program you point it at, and the constraint is the whole
+story: a thurbox `surface` carries **cells**, so the program has to paint with
+ordinary text and SGR colour. A port that paints images via the Kitty graphics
+protocol has nothing to be parsed into — which rules out
+[`cryptocode/terminal-doom`](https://github.com/cryptocode/terminal-doom), whose
+README describes exactly that. I did not test it; I do not expect it to render here.
 
-That constraint is the whole story: a thurbox `surface` carries **cells**, so the
-port has to draw with ordinary text and SGR colour. A port that paints images via
-the Kitty graphics protocol has nothing to be parsed into — which rules out
-[`cryptocode/terminal-doom`](https://github.com/cryptocode/terminal-doom),
-whose README describes exactly that. I did not test it; I do not expect it to
-render here.
+`bin/doom`, which ships here and is what the pane runs by default, finds an engine
+in three steps:
 
-**[`badlogic/pi-doom`](https://github.com/badlogic/pi-doom)** is what this is
-documented against, and what I tested. GPL-2.0, TypeScript, DOOM compiled to
-WebAssembly from [doomgeneric](https://github.com/ozkl/doomgeneric). Frames are
-**half-block characters (`▀`) with 24-bit colour** — the top pixel in the
-foreground, the bottom in the background — which is exactly what a cell surface
-can carry.
+1. `$THURBOX_DOOM_PROGRAM`, if you set it — yours wins;
+2. `pi-doom` on `PATH`, if you already have one;
+3. otherwise it fetches **[`badlogic/pi-doom`](https://github.com/badlogic/pi-doom)**
+   once into `${XDG_CACHE_HOME:-~/.cache}/thurbox-doom/` and runs that.
 
-```bash
-git clone https://github.com/badlogic/pi-doom ~/src/pi-doom
-cd ~/src/pi-doom
-npm install
-npm install --no-save tsx        # see the note below
-```
+pi-doom is GPL-2.0, TypeScript, DOOM compiled to WebAssembly from
+[doomgeneric](https://github.com/ozkl/doomgeneric), and it paints **half-block
+characters (`▀`) with 24-bit colour** — the top pixel in the foreground, the bottom
+in the background. That is what a cell surface can carry.
 
-Then put it where the plugin looks, so no settings are needed:
+Step 3 needs `git`, `node` and `npm`; without them the launcher says which are
+missing and how to point it elsewhere. **Nothing runs at install time** — the
+launcher runs when the pane runs, under the capability you granted, in a pane where
+you can watch it and kill it.
 
-```bash
-mkdir -p ~/.config/thurbox/ui/doom
-printf '#!/bin/sh\nexec %s/node_modules/.bin/tsx %s/src/standalone.ts "$@"\n' \
-  ~/src/pi-doom ~/src/pi-doom > ~/.config/thurbox/ui/doom/pi-doom
-chmod +x ~/.config/thurbox/ui/doom/pi-doom
-cp wad/freedoom1.wad ~/.config/thurbox/ui/doom/       # from this repository
-```
+What I verified by running it, from an empty cache and with no arguments: it cloned
+pi-doom, installed its dependencies, found the shipped WAD by itself, logged
+`DOOM initialized (640x400)`, and emitted **1,677,680 `▀` glyphs with 1,677,680
+paired truecolor runs and zero Kitty-graphics or Sixel sequences.** Roughly 10
+frames a second at 80×24, against an engine loop targeting 35.
 
-That is the whole configuration. Trust the pane and it plays. If you would rather
-keep the port elsewhere, the two settings below point at it instead.
+**Why the cache is outside the interface directory.** That directory is watched
+recursively, and an `npm install` under it would fire thousands of events — and the
+counter-intuitive failure is not "reloads too often" but "stops reloading at all",
+because a burst keeps the debounce window rolling forward. Keeping the working copy
+clean matters for a second reason: a dirty tree is what makes `plugin update` report
+`kept` and refuse to move, so build output inside the clone would block your own
+updates.
 
-What I verified on this machine (node v26.7.0, pi-doom at `8257577`):
-
-- It runs, and it accepted **our vendored Freedoom WAD**: it logs
-  `DOOM initialized (640x400)` and plays.
-- Its output is genuinely cells. In one capture: **152,800 `▀` glyphs with 152,800
-  paired `ESC[38;2;…m` / `ESC[48;2;…m` truecolor runs, and zero Kitty-graphics or
-  Sixel sequences.**
-- It runs **from any working directory** when given absolute paths, which is what
-  the pane needs: a program pane has no session and therefore no repository, so
-  the kernel runs it in the interface directory.
-- Throughput: ~17 MB over a 25 s capture, ~10 frames a second at 80×24, ~69 KB a
-  frame. Its engine loop targets 35 fps (`setInterval(…, 1000/35)`), so the
-  terminal size and JS overhead are what you are actually bound by.
-
-**The `tsx` note.** `npm start` runs `npx tsx`, and on a machine without `tsx`
-that **prompts** to install it — which in a pane would sit there waiting for a `y`
-you cannot see. Install it once, as above, and point the plugin at the binary
-directly.
-
-Other ports may work. The requirement is text plus SGR colour on stdout, and keys
-read from stdin.
-
-### A WAD — included
+### The WAD, which also ships here
 
 ```text
 wad/freedoom1.wad        Freedoom: Phase 1, 0.13.0 — the single-player campaign
@@ -132,92 +114,70 @@ wad/CREDITS-MUSIC.txt    the music credits
 ```
 
 [Freedoom](https://freedoom.github.io/)
-([`freedoom/freedoom`](https://github.com/freedoom/freedoom)) is free game data
-under a **modified BSD licence** permitting binary redistribution as long as the
-notice, conditions and disclaimer travel with it — which is what
-`wad/COPYING.txt` is doing there. Phase 1 rather than FreeDM because FreeDM's maps
-are deathmatch arenas with no monster placement.
+([`freedoom/freedoom`](https://github.com/freedoom/freedoom)) is free game data under
+a **modified BSD licence** permitting binary redistribution as long as the notice,
+conditions and disclaimer travel with it — which is what `wad/COPYING.txt` is doing
+there. Phase 1 rather than FreeDM because FreeDM's maps are deathmatch arenas with no
+monster placement.
 
-Provenance: extracted from `freedoom-0.13.0.zip`, whose SHA256 matched Freedoom's
-own published `freedoom-0.13.0-CHECKSUM` manifest. The shipped file is
+Provenance: extracted from `freedoom-0.13.0.zip`, whose SHA256 matched Freedoom's own
+published `freedoom-0.13.0-CHECKSUM` manifest. The shipped file is
 
 ```text
 sha256  7323bcc168c5a45ff10749b339960e98314740a734c30d4b9f3337001f9e703d  freedoom1.wad
 ```
 
-pi-doom bundles a shareware `doom1.wad` of its own and falls back to it when you
-name no WAD. Pointing the `wad` setting at the Freedoom file above is the
-freely-distributable route, and it is the combination I tested. A shareware or
-commercial WAD is your own affair; **no port and no binary is vendored here.**
+A shareware or commercial WAD is your own affair, and **no engine binary is vendored
+here** — the launcher fetches one, under its own licence.
 
 ## Install
 
-The v2 branch has a pane package manager, and this repository is a package:
-`plugin.toml` at its root names the pane and where it lands.
+This plugin carries a payload, so it is installed by **cloning** it:
 
 ```bash
-git clone https://github.com/Thurbeen/thurbox-doom ~/src/thurbox-doom
-thurbox-cli plugin install ~/src/thurbox-doom
+thurbox-cli plugin install git+https://github.com/Thurbeen/thurbox-doom
 ```
 
-Or from GitHub's raw host, no clone — the manager fetches `plugin.toml` and then
-the pane from that base:
+A `git+` prefix, a `.git` suffix or `git@host:path` are the three forms that clone.
+A bare `https://…` deliberately does *not* — that spelling means "fetch the files
+this manifest names from this base", and that path is text-only, so it could not
+carry the WAD or the launcher anyway.
 
-```bash
-thurbox-cli plugin install https://raw.githubusercontent.com/Thurbeen/thurbox-doom/main
-```
-
-**The `main` URL works only once this is on `main`.** While it sat on a branch I
-measured `…/main/plugin.toml` as a 404 and both `…/<branch>/plugin.toml` and
-`…/<commit-sha>/plugin.toml` as 200 — so on a 404, put a branch name or a sha
-where `main` is.
-
-> **`thurbox-cli plugin install doom` does *not* install this.** A bare name
-> resolves to `ui-plugins/<name>` inside the thurbox repository at your binary's
-> release tag, and that repository now ships a `doom` pane of its own as the
-> worked example for the capability. It is a different, smaller plugin in its own
-> slot. Install this one by URL or path.
-
-Either way the pane lands at `plugins/40_doom.lua` in your interface directory and
-the entry is recorded in `plugins.toml` beside it:
+The working copy lands at `<interface dir>/thurbox-doom/` and **keeps its `.git`**,
+which is what makes `thurbox-cli plugin update` a fetch rather than a re-download and
+what protects your edits: git will not move a dirty working tree, so a `sync` over a
+pane you changed reports `kept`, and `git diff` shows what you did. `install` finds
+the pane itself — the single `.lua` under `plugins/` — and records it:
 
 ```toml
 [[plugin]]
-src  = "https://raw.githubusercontent.com/Thurbeen/thurbox-doom/main"
-file = "plugins/40_doom.lua"
+src  = "git+https://github.com/Thurbeen/thurbox-doom"
+file = "thurbox-doom/plugins/40_doom.lua"
 ```
 
-`--as plugins/NN_doom.lua` puts it elsewhere — the number is load order. After
-hand-editing the spec, `thurbox-cli plugin sync` converges the directory and its
-exit status says whether it worked; `plugins.lock` records what each entry resolved
-to and the digest of every file delivered. An edit you make to an installed file is
-kept, and deleting one is remembered.
+The lock records the **commit**, not the branch, so the same spec and lock reproduce
+the same bytes elsewhere. Load order still comes from the `40_` prefix.
 
-Two more things worth knowing:
+> **`thurbox-cli plugin install doom` does not install this.** A bare name resolves
+> into the thurbox repository's own examples, where there is a smaller `doom` pane
+> demonstrating the capability. This one installs by repository.
 
-- **The WAD is not installed by any of this.** A package may deliver **Lua only** —
-  every declared destination must end in `.lua` — so `plugin install` brings
-  `doom.lua` and nothing else. Keep the clone, or move `wad/freedoom1.wad`
-  somewhere of your own, and name it in the `wad` setting.
-- **A pin only means something for a bare name.** `src` here is a URL, so `pin` is
-  recorded and otherwise ignored; put the ref in the URL.
-
-By hand still works — the manager is a convenience, not a gate:
-
-```bash
-cp doom.lua ~/.config/thurbox/ui/plugins/40_doom.lua
-```
+**What cloning means, plainly:** it puts this repository's files on your disk,
+executable bits included — `bin/doom` arrives executable. Nothing is executed by
+installing, and the launcher cannot run until you grant the `program` capability
+below. Treat a repository you did not write the way you would treat one you were
+about to `make` in; this one is three files and a WAD, and reading `bin/doom` takes a
+minute.
 
 `~/.config/thurbox/ui/` is the interface directory, watched, so the pane appears on
-save (120 ms debounce); `F10` forces a reload. `THURBOX_UI_DIR` overrides that
-path, and a **dev build** (`0.0.0-dev`) reads `~/.config/thurbox-dev/ui` instead.
+save (120 ms debounce); `F10` forces a reload. `THURBOX_UI_DIR` overrides the path,
+and a dev build (`0.0.0-dev`) reads `~/.config/thurbox-dev/ui` instead.
 
 The pane declares `slot = "center"`, which the stock `layout.lua` always places, so
-**there is no arrangement edit to make** and `thurbox-cli plugin check` — which now
-fails a pane whose slot nothing places — has nothing to complain about. The cost is
-that DOOM and the agent take turns in the centre rather than sitting side by side.
-If you would rather have both, give this pane a slot of its own and place it: a
-two-line edit to `layout.lua`, which nothing here writes for you.
+**there is no arrangement edit to make** and `thurbox-cli plugin check` — which fails
+a pane whose slot nothing places — has nothing to complain about. The cost is that
+DOOM and the agent take turns in the centre; give the pane a slot of its own if you
+would rather have both.
 
 ## Trust it
 
@@ -243,8 +203,8 @@ Declared as data, so they appear in the settings modal and are stored in
 
 | Setting | Default | What it does |
 |---|---|---|
-| `doom.program` | *(empty)* | program to run. Empty means `<interface dir>/doom/pi-doom`, and `pi-doom` from `PATH` if the kernel publishes no interface directory |
-| `doom.wad` | *(empty)* | WAD, passed as the **last** argument. Empty means `<interface dir>/doom/freedoom1.wad`, and no WAD argument at all if there is no interface directory to look in |
+| `doom.program` | *(empty)* | program to run. Empty means `<interface dir>/thurbox-doom/bin/doom` — the launcher this repository ships — and `pi-doom` from `PATH` if the kernel publishes no interface directory |
+| `doom.wad` | *(empty)* | WAD, passed as the **last** argument. Empty means `<interface dir>/thurbox-doom/wad/freedoom1.wad`, and no WAD argument at all if there is no interface directory to look in |
 | `doom.args` | *(empty)* | extra arguments, split on spaces |
 | `doom.footer` | `true` | draw the controls row (it costs the game one row) |
 
@@ -281,6 +241,7 @@ Everything the plugin does not claim goes to the program, because it declares
 | fire | `f`, or any `ctrl` chord |
 | use / open | `space` |
 | weapons | `1`–`7` |
+| automap | `tab` |
 | menu | `esc` |
 | quit the game | `q` |
 
@@ -299,65 +260,54 @@ tab). They are `ctrl+alt+` chords because a declared chord is consumed before th
 surface ever sees it, and DOOM wants every bare key there is — the letters
 included, for cheats.
 
-### Two caveats that would otherwise read as bugs
+### One caveat, and one retraction
 
-**1. `tab` cannot reach DOOM.** `ctrl+q`, `f10`, `tab` / `shift+tab`,
-`ctrl+h` / `ctrl+l` and `f12` are reserved by the kernel, which is what stops a
-program that eats every key from trapping you in it. **`tab` is DOOM's automap**,
-so the automap does not arrive. Rebinding is where you would look — chord overrides
-live in `ui.json` — but `docs/PLUGINS.md` says the reserved chords "cannot be
-rebound **or** consumed", so it is not clear moving focus off `tab` is even
-offered. I could not try it.
+**Retracted: `tab` works.** Earlier versions of this README said `tab` was reserved
+by the kernel for focus and that DOOM's automap was therefore unreachable. That was
+wrong. The reserved set is `ctrl+q`, `f10`, `ctrl+h`, `ctrl+l` and `f12`; `tab` is
+forwarded to the focused pane on purpose, because every coding agent needs it for
+completion. **The automap works**, and the controls row advertises it. The kernel's
+own `F1` help and `docs/PLUGINS.md` claimed otherwise; both were fixed upstream after
+this plugin reported it.
 
-**2. Key releases, and why this port cares more than most.** pi-doom asks the
-terminal for press/release events: its component sets `wantsKeyRelease = true`, and
-pi-tui writes the Kitty keyboard sequence `ESC[>3u` (flags 1|2 — disambiguate, plus
-**report event types**) once a terminal answers its capability query. It then
-pushes a DOOM key down on a press and up on a release.
+**Key releases, and why this port cares more than most.** pi-doom asks the terminal
+for press/release events: its component sets `wantsKeyRelease = true`, and pi-tui
+writes the Kitty keyboard sequence `ESC[>3u` (flags 1|2 — disambiguate, plus **report
+event types**) once a terminal answers its capability query. It then pushes a DOOM key
+down on a press and up on a release.
 
 The consequence is the part to watch: **it releases only on an explicit release
-event.** In my capture under a plain pty, no `ESC[>3u` was written at all — the
-query went unanswered, so it fell back to presses only. If the same happens inside
-the pane, a direction key may latch and you will keep walking. I could **not** test
-this in the pane. It is the first thing to try, and if movement sticks, this is
-why. The setting worth reaching for is `set -g extended-keys on` in `~/.tmux.conf`,
-though on the tmux I checked (3.7b) the manual documents that as `modifyOtherKeys`
-for *modified* keys and mentions neither the Kitty protocol nor release events.
+event.** In my capture under a plain pty no `ESC[>3u` was written at all — the query
+went unanswered, so it fell back to presses only. If the same happens inside the pane,
+a direction key may latch and you will keep walking. I could **not** test this in the
+pane; it is the first thing to try, and if movement sticks, this is why. The setting
+worth reaching for is `set -g extended-keys on` in `~/.tmux.conf`, though on the tmux I
+checked (3.7b) the manual documents that as `modifyOtherKeys` for *modified* keys and
+mentions neither the Kitty protocol nor release events.
 
-## Why the payload is not installed for you
+## How the payload gets there
 
-It should be, and `thurbox-cli plugin install` cannot do it yet. This is not a
-policy I chose; it is four things missing in the package manager, and I checked each
-against the branch rather than assuming:
+Worth a paragraph, because it changed and the old answer is in this repository's
+history. Until recently a package could deliver **Lua only**: the file-by-file path
+returns a `String` and decodes remote output lossily, so a WAD or an executable was
+not refused, it was silently corrupted — and `validate_destination`'s `.lua` rule was
+the only thing standing between a user and that. This README used to carry a section
+explaining what the installer would need to grow.
 
-1. **A package may deliver Lua only.** `validate_destination` in
-   `src/session/plugin_spec.rs` refuses any `path` or `source` that does not end in
-   `.lua`, for the pane and for every module.
-2. **The delivery path cannot carry bytes at all.** `fetch_file` in
-   `src/agent/extension_config.rs` returns a `String` — `read_to_string` locally,
-   an HTTP GET decoded as UTF-8 remotely — and the installer writes that text out.
-   A 28.8 MB WAD or an executable is not "disallowed", it is unrepresentable. The
-   bytes sibling already exists and is used elsewhere (`http_get_to_file`, for
-   release tarballs and self-update), so the seam to generalise is identified.
-3. **There is no executable bit.** Extension manifests have `executable = true` on
-   their `[[files]]`; package manifests have no payload files to mark.
-4. **There is nothing to verify a payload against, and no way to pick one per
-   platform.** The lock records a digest of what was delivered, which is the right
-   shape — but a binary needs its expected `sha256` in the manifest *before* it is
-   trusted, and a native port needs one entry per OS/architecture.
+The answer upstream was not to plumb bytes through that seam: a plugin with a payload
+is a **repository**, and `git clone` already provides arbitrary bytes, whatever layout
+the author chose, an exact identity for what was delivered, and a refusal to clobber a
+dirty tree. So there is no checksum to maintain here — the commit in the lock
+identifies every byte — no executable bit to declare, and no platform matrix in the
+manifest. Platform selection is `thurbox.platform`, read by the pane, which is why
+this one can say "nothing here runs on Windows yet" rather than exec'ing a shell
+script that cannot run.
 
-So the ask upstream is a payload section for `plugin.toml` — the semantics
-extensions already have for `[[files]]`, delivered through the bytes path, confined
-to the package's own `<name>/` directory the way modules are confined to
-`lib/<name>/`. This plugin is written so that the day that lands, its defaults
-already point at what the installer would put there and no setting has to change.
-
-Note the part a manifest cannot fix: pi-doom is **not a single binary**. It is a
-node entry point, a WASM module and `node_modules`, so a package could deliver the
-JS and the `.wasm` but the `npm install` would still be yours to run. A port that
-is one statically-linked executable would be genuinely installable — with the
-licence consequence that shipping a GPL-2.0 binary obliges this repository to carry
-its corresponding source too.
+The one thing a clone still cannot do is build. pi-doom is a node entry point, a
+`.wasm` and `node_modules`, so `bin/doom` fetches and installs it on first run — in a
+pane, under a capability you granted, with its output on screen — rather than a README
+asking you to do it. That is deliberately not an install-time hook: arbitrary code at
+install is a bigger consent question than "hold a process open on my keystrokes".
 
 ## What this deliberately is not
 
@@ -394,31 +344,38 @@ The rest is not. **DOOM, the ports and the WADs carry their own licences.**
   which requires the notice, conditions and disclaimer to accompany it:
   `wad/COPYING.txt` and `wad/CREDITS.txt` are that accompaniment, and removing them
   would break the terms. The root `LICENSE` does not cover the WAD.
-- **No port and no binary is vendored.** pi-doom is **GPL-2.0**, as are other
-  doomgeneric-derived ports; you clone and build it yourself, under its own licence.
-  Shipping a GPL binary here would oblige this repository to carry its
-  corresponding source, which is a deliberate non-goal.
+- **No engine is vendored.** pi-doom is **GPL-2.0**, as are other
+  doomgeneric-derived ports. `bin/doom` *fetches* it into a cache on your machine, at
+  which point you have it under its own licence, from its own repository, with its
+  source — which is exactly what a GPL binary shipped from here could not offer
+  without this repository carrying that source too. That is why the launcher fetches
+  rather than the package vendoring.
 - A shareware or commercial WAD is yours to obtain and abide by. None is here.
 
 ## Status
 
-Written against branch `thurbox-v2-ui-approach` at `953e177`, reading
-`docs/PLUGINS.md`, `src/kernel/command.rs`, `src/kernel/convert.rs`,
-`src/kernel/terminal.rs`, `src/kernel/host.rs` and `thurbox.yml` for the
-program-pane contract.
+Written against branch `thurbox-v2-ui-approach` at **`f1c0b85`** — the program-pane
+capability (`953e177`), install-by-clone (`e6e1d532`) and the `tab` documentation fix
+(`f1c0b85`) — reading `docs/PLUGINS.md`, `ui/AGENTS.md`, `src/kernel/command.rs`,
+`src/kernel/convert.rs`, `src/kernel/terminal.rs`, `src/kernel/host.rs`,
+`src/session/plugin_spec.rs`, `src/kernel/packages.rs` and `thurbox.yml`.
 
-Checked with `luac -p`, `selene` against **that commit's** `thurbox.yml` (the
-sandbox definition, which is where `thurbox.granted` is declared — an older copy
-rejects this file), and `stylua` with the pinned `.stylua.toml`. It also runs under
-a stub harness: kernel globals faked, `lib/theme.lua`, `lib/widgets.lua` and
-`lib/settings.lua` the real files, exercising the untrusted, running and released
-states, the every-frame ask, argument assembly (including a WAD path with a space
-staying one argument), the error path, both chords, and every emitted node against
-the fields `convert.rs` accepts.
+Gates: `luac -p`, `selene` against **that commit's** `thurbox.yml` (where
+`thurbox.granted` and `thurbox.platform` are declared — an older copy rejects this
+file), and `stylua --check` with the pinned `.stylua.toml`. A stub harness exercises
+the unsupported-platform, untrusted, running and released states, the every-frame ask,
+argument assembly (including a WAD path with a space staying one argument), the
+`ui_dir` resolution and its fallbacks, the error path, both chords, the automap hint,
+and every emitted node against the fields `convert.rs` accepts.
+
+Measured for real, outside thurbox: `bin/doom` from an empty cache and with no
+arguments fetched pi-doom, installed its dependencies, found the shipped WAD, logged
+`DOOM initialized (640x400)` and emitted 1,677,680 half-blocks with paired truecolor
+runs and no graphics-protocol sequences.
 
 **I have never seen this pane render.** The interface cannot be launched from where
-this was written, so no visual claim here comes from a screen. What *is* measured is
-the port, outside thurbox: that it runs, that it accepts the shipped WAD, and that
-it emits cells rather than graphics-protocol images. Untested: the pane itself,
-key releases through the kernel and tmux, and every `thurbox-cli plugin` command —
-the installed CLI is `0.0.0-dev` and has no `plugin` subcommand.
+this was written, so no visual claim here comes from a screen — the launcher and the
+engine are measured, the pane around them is read from the kernel's source. Also
+untested: key releases through the kernel and tmux (see above), and every
+`thurbox-cli plugin` command, because the installed CLI is `0.0.0-dev` and has no
+`plugin` subcommand.
