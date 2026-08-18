@@ -199,6 +199,10 @@ There is no default `program`, because nothing here could honestly supply one: a
 would be a path that does not exist on most machines, and "no such file or directory"
 is a worse first impression than a pane that says what it needs.
 
+The pane shows those paths **in full**, wrapped rather than truncated, because a path
+you are meant to copy is no use with its filename cut off — a long interface directory
+was doing exactly that.
+
 **Absolute paths.** A program pane has no session and therefore no repository, so the
 kernel runs it locally in the interface directory — a relative path resolves against
 `~/.config/thurbox/ui/`, which is not what you meant.

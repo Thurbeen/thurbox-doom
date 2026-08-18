@@ -184,6 +184,40 @@ local function chord_for(action)
   return nil
 end
 
+--- A path or command line, in FULL, wrapped across as many rows as it needs.
+---
+--- Not `widgets.truncate`, which cuts the tail — and for a path the tail is the
+--- filename, so an end-truncated path loses the half that identifies it and turns
+--- the one string the reader has to retype into the one they cannot see. Reported
+--- from a real install whose interface directory was long enough to cut the WAD's
+--- name off.
+---
+--- `wrap` is a text-node field, so the kernel folds it; all this has to get right is
+--- how many rows to ask for, since a box splits its height between children and a
+--- one-row node would show one row of a three-row path. Past the cap it
+--- middle-truncates, which keeps both ends: the directory says where, the leaf says
+--- which one.
+local function path_rows(text, width, cap)
+  cap = cap or 3
+  width = math.max(1, width)
+  local rows = math.ceil(widgets.len(text) / width)
+  if rows > cap then
+    return widgets.middle_truncate(text, width * cap), cap
+  end
+  return text, math.max(1, rows)
+end
+
+--- A path node: the whole string, wrapped, in the accent colour.
+local function path_line(text, width)
+  local shown, rows = path_rows(text, width)
+  return {
+    type = "text",
+    len = rows,
+    wrap = true,
+    text = { { { text = "  " .. shown, style = { fg = theme.accent } } } },
+  }
+end
+
 --- A panel with a title, a body, and nothing clever.
 local function panel(ctx, children)
   return {
@@ -208,10 +242,8 @@ local function untrusted(ctx)
       { text = "  This pane wants to run a program you type at.", style = { fg = theme.text } },
     }),
     blank(),
-    line({
-      { text = "  it would run  ", style = { fg = theme.muted } },
-      { text = widgets.truncate(command_line(), width), style = { fg = theme.accent } },
-    }),
+    line({ { text = "  it would run", style = { fg = theme.muted } } }),
+    path_line(command_line(), width),
     line({
       {
         text = "  configure `program` and `wad` in settings to run something else",
@@ -272,7 +304,7 @@ local function needs_program(ctx)
   if wad then
     children[#children + 1] =
       line({ { text = "  the WAD this plugin ships, passed as the last argument:", style = { fg = theme.muted } } })
-    children[#children + 1] = line({ { text = "  " .. widgets.truncate(wad, width), style = { fg = theme.accent } } })
+    children[#children + 1] = path_line(wad, width)
     children[#children + 1] = blank()
   end
   children[#children + 1] = line({
@@ -452,7 +484,10 @@ return {
     if failed then
       children[#children + 1] = line({
         {
-          text = " " .. widgets.truncate(failed, math.max(0, (ctx.width or 0) - 3)),
+          -- Middle-truncated, not end-truncated: a failure names a path, and the
+          -- leaf is the half that says which one. One row, because it sits under
+          -- the game and wrapping it would cost rows the game is using.
+          text = " " .. widgets.middle_truncate(failed, math.max(0, (ctx.width or 0) - 3)),
           style = { fg = theme.bad },
         },
       })
