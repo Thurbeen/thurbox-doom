@@ -604,8 +604,13 @@ return {
 
   on_action = function(action)
     if action == OPEN then
-      -- In a switch slot, focusing IS what brings the view forward.
-      command("focus", { text = NAME })
+      -- In a switch slot, focusing IS what brings the view forward — and `toggle`
+      -- makes the same key the way back out, returning to whatever was focused
+      -- before. The kernel owns that memory (`focus_return`, which `Esc` also
+      -- reads); a plugin doing it by hand could only name a sibling to return to,
+      -- and the occupants of a slot are the user's to rearrange, not this file's to
+      -- assume.
+      command("focus", { text = NAME, toggle = true })
       return true
     end
     if action == RELEASE then
