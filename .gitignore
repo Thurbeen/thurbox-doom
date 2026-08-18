@@ -1,0 +1,3 @@
+engine/src/build-thurbox/
+engine/src/doom
+engine/src/*.o

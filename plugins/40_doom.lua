@@ -83,6 +83,27 @@ local PAYLOAD_WAD = "wad/freedoom1.wad"
 --- stripping one anywhere else would rename somebody's directory. Written down because
 --- a separator assumption has twice shipped green from Linux in the kernel this runs
 --- on — the second time it broke every repository install.
+--- The engine builds this repository ships, keyed as `thurbox.platform` reports a
+--- machine: `os .. "-" .. arch`.
+---
+--- A list rather than a stat, because a plugin cannot look at the filesystem — so the
+--- pane knows what was committed and can say honestly which machine it has nothing
+--- for, rather than exec'ing a path that may not exist. Building for another platform
+--- is `cd engine/src && make` and dropping the result in `engine/bin/<os>-<arch>/`,
+--- after which this table is the only thing in the way: add the key.
+local SHIPPED_ENGINES = { ["linux-x86_64"] = true }
+
+--- This platform's engine inside the clone, and the key it was looked up by — the
+--- second is what the panel names when there is no first.
+local function shipped_engine()
+  local platform = (thurbox and thurbox.platform) or {}
+  local key = tostring(platform.os or "?") .. "-" .. tostring(platform.arch or "?")
+  if SHIPPED_ENGINES[key] then
+    return "engine/bin/" .. key .. "/doom", key
+  end
+  return nil, key
+end
+
 --- Is this path already absolute? POSIX, a Windows drive letter, or a UNC share.
 local function absolute(path)
   return path:match("^/") ~= nil or path:match("^%a:[/\\]") ~= nil or path:match("^\\\\") ~= nil
@@ -112,17 +133,26 @@ local function setting(id, fallback)
   return value
 end
 
---- The program to run, or nil when nothing is configured.
+--- The program to run: what you configured, else the engine shipped for this machine,
+--- else nothing.
 ---
---- No default, because nothing here can honestly supply one. A guess would be a path
---- that does not exist on most machines, and "no such file or directory" is a worse
---- first impression than a pane that says plainly what it needs.
+--- Unset resolves to the committed build rather than to a guess — the difference being
+--- that this package knows what it shipped, so either the path is there or the pane can
+--- name the platform it has nothing for. Absolute is honoured as given; relative
+--- resolves inside this plugin's own clone, exactly as the WAD does.
 local function program()
   local named = setting("program", "")
-  if type(named) ~= "string" or named:match("^%s*$") then
+  if type(named) == "string" and not named:match("^%s*$") then
+    if absolute(named) then
+      return named
+    end
+    return payload(named)
+  end
+  local engine = shipped_engine()
+  if not engine then
     return nil
   end
-  return named
+  return payload(engine)
 end
 
 --- The argument list, as a LIST.
@@ -313,6 +343,7 @@ end
 --- argument the program will be handed.
 local function needs_program(ctx)
   local width = math.max(0, (ctx.width or 0) - 6)
+  local _, machine = shipped_engine()
   -- The resolved path, not the declaration: this line exists to be read and copied.
   local wad = nil
   local argv = args()
@@ -321,21 +352,34 @@ local function needs_program(ctx)
   end
   local children = {
     blank(),
-    line({ { text = "  Point this pane at a terminal DOOM.", style = { fg = theme.text } } }),
+    line({
+      { text = "  No engine here for ", style = { fg = theme.text } },
+      { text = machine, style = { fg = theme.accent } },
+      { text = ".", style = { fg = theme.text } },
+    }),
     blank(),
     line({
-      { text = "  settings (ctrl+, or F6) → ", style = { fg = theme.muted } },
-      { text = "doom.program", style = { fg = theme.accent } },
-      { text = "  — any DOOM that paints text", style = { fg = theme.muted } },
-    }),
-    line({
       {
-        text = "  cells and reads its keys from stdin. Cells, not a graphics protocol:",
+        text = "  This package ships a built DOOM for linux-x86_64 only. For yours,",
         style = { fg = theme.muted },
       },
     }),
     line({
-      { text = "  a surface carries characters, so an image has nothing to parse into.", style = { fg = theme.muted } },
+      { text = "  build it — ", style = { fg = theme.muted } },
+      { text = "cd engine/src && make", style = { fg = theme.accent } },
+      { text = " — and drop the result in", style = { fg = theme.muted } },
+    }),
+    line({
+      { text = "  engine/bin/" .. machine .. "/doom", style = { fg = theme.accent } },
+      { text = ", or set ", style = { fg = theme.muted } },
+      { text = "doom.program", style = { fg = theme.accent } },
+      { text = " to any DOOM", style = { fg = theme.muted } },
+    }),
+    line({
+      {
+        text = "  that paints text cells and reads its keys from stdin.",
+        style = { fg = theme.muted },
+      },
     }),
     blank(),
   }
@@ -384,19 +428,16 @@ end
 
 --- The controls, most useful first, so trimming from the end costs least.
 ---
---- DOOM's own defaults, not a particular port's: this plugin ships no engine and so
---- has no business claiming one's key map. A port that rebinds them will disagree
---- with this row, which is why the README says whose keys these are.
----
---- `tab` IS here. An earlier version of this file left it out, claiming the kernel
---- reserved it for focus; that was wrong — the reserved set is `ctrl+q`, `f10`,
---- `ctrl+h`, `ctrl+l` and `f12`, and `tab` is forwarded to the focused pane on
---- purpose. The automap works.
+--- These are the shipped engine's, which are DOOM's own where a terminal can express
+--- them and substitutes where it cannot: there is no way to see a bare `shift` or
+--- `ctrl` held down, so `r` runs and `f` fires alongside whatever control byte a
+--- `ctrl` chord produces. `tab` is here because the kernel does not reserve it — an
+--- earlier version of this file wrongly said it did — so the automap works.
 local CONTROLS = {
-  { "↑↓←→", "move" },
-  { "ctrl", "fire" },
+  { "↑↓←→/wasd", "move" },
+  { "f", "fire" },
   { "space", "use" },
-  { "⇧", "run" },
+  { "r", "run" },
   { ", .", "strafe" },
   { "1-7", "weapon" },
   { "tab", "map" },
