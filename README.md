@@ -221,21 +221,25 @@ Declared as data, so they appear in the settings modal and are stored in
 | Setting | Default | What it does |
 |---|---|---|
 | `doom.program` | *(empty — required)* | the terminal DOOM to run. Until it is set the pane starts nothing and says so |
-| `doom.wad` | *(empty)* | WAD, passed as the **last** argument. Empty means the one this repository brought, at `<interface dir>/thurbox-doom/wad/freedoom1.wad` |
+| `doom.wad` | `wad/freedoom1.wad` | WAD, passed as the **last** argument. A **relative** path resolves inside this plugin's clone, so the default is the WAD that came with it; an absolute path is used as given |
 | `doom.args` | *(empty)* | extra arguments, split on spaces |
 | `doom.footer` | `true` | draw the controls row (it costs the game one row) |
 
 There is no default `program`, because nothing here could honestly supply one: a guess
 would be a path that does not exist on most machines, and "no such file or directory"
-is a worse first impression than a pane that says what it needs.
+is a worse first impression than a pane that says what it needs. `wad` is the opposite
+case — this package delivers exactly one — so its default **names that file**, and the
+settings modal shows it rather than an empty box.
 
 The pane shows those paths **in full**, wrapped rather than truncated, because a path
 you are meant to copy is no use with its filename cut off — a long interface directory
 was doing exactly that.
 
-**Absolute paths.** A program pane has no session and therefore no repository, so the
-kernel runs it locally in the interface directory — a relative path resolves against
-`~/.config/thurbox/ui/`, which is not what you meant.
+**Paths.** A relative `wad` resolves inside this plugin's clone
+(`<interface dir>/thurbox-doom/`), which is where its own files are. Everything else
+wants an absolute path: a program pane has no session and therefore no repository, so
+the kernel runs the program in the interface directory, and a relative `program` would
+resolve against `~/.config/thurbox/ui/` rather than where you meant.
 
 **Why `wad` is separate from `args`.** Arguments are passed as a list and quoted
 individually, so a WAD path containing a space survives as one argument. `args` is
