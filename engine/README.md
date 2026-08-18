@@ -11,13 +11,21 @@ licences, three directories, no ambiguity about which covers what.
 |---|---|
 | `bin/linux-x86_64/doom` | a statically linked binary, 1.5M, no shared libraries and no runtime |
 | `src/doomgeneric_thurbox.c` | the frontend written for this pane |
-| `src/` (the rest) | [doomgeneric](https://github.com/ozkl/doomgeneric) at commit `dcb7a8d`, unmodified |
+| `src/` (the rest) | [doomgeneric](https://github.com/ozkl/doomgeneric) at commit `dcb7a8d`, with one marked change (below) |
 | `src/Makefile` | the recipe that produced the binary |
 | `LICENSE` | GNU GPL v2, which DOOM's source carries |
 
 Shipping a binary under the GPL obliges the distributor to ship its corresponding
 source. That is what `src/` is: not a pointer to a repository that may move, but
 the exact tree this binary was compiled from.
+
+## The one change to the vendored source
+
+`i_system.c`'s `ZenityAvailable()` returns 0, marked `THURBOX MODIFICATION` in place.
+Upstream probes for `/usr/bin/zenity` and opens a **GUI error box** when DOOM fails —
+which inside a terminal pane is a dialog nobody can see, announced by GTK warnings
+printed over the game. `I_Error`'s message still goes to stderr, where the pane shows
+it. Everything else in `src/` is upstream's, byte for byte.
 
 ## Rebuilding it
 
@@ -29,7 +37,7 @@ Needs a C compiler and `make`; nothing else. Built here with
 `cc (GCC) 16.2.1 20260810` and `-O2 -static`.
 
 ```text
-sha256  ab524b272402fe02fe4b25daaf04cf7fad5d96bc500de000955a551fc981cdd0  bin/linux-x86_64/doom
+sha256  eef61e89a62901c1d3642a38878ebc4ad9e0676eb3d4228651e494a2591423c2  bin/linux-x86_64/doom
 sha256  81658aba7d8a4adf9f48771488200f633110d47471448451e3dfd2966ab72f4e  src/doomgeneric_thurbox.c
 ```
 

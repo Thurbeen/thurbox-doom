@@ -271,7 +271,11 @@ void I_Quit (void)
 
 static int ZenityAvailable(void)
 {
-    return system(ZENITY_BINARY " --help >/dev/null 2>&1") == 0;
+    // THURBOX MODIFICATION: never. This build runs inside a terminal pane, where a
+    // GUI error box is unreachable, and probing for one prints Adwaita warnings over
+    // the game. I_Error's message still goes to stderr, which is where the pane and
+    // its reader can actually see it.
+    return 0;
 }
 
 // Escape special characters in the given string so that they can be

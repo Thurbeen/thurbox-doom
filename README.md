@@ -244,7 +244,7 @@ Declared as data, so they appear in the settings modal and are stored in
 |---|---|---|
 | `doom.program` | *(empty → the shipped engine)* | the DOOM to run. Empty resolves to `engine/bin/<os>-<arch>/doom` inside this clone, which exists for `linux-x86_64`; on a machine with no shipped build the pane says so. A relative path resolves in the clone, an absolute one is used as given |
 | `doom.wad` | `wad/freedoom1.wad` | WAD, passed as the **last** argument. A **relative** path resolves inside this plugin's clone, so the default is the WAD that came with it; an absolute path is used as given |
-| `doom.args` | *(empty)* | extra arguments, split on spaces |
+| `doom.args` | `-iwad` | arguments **before** the WAD, split on spaces. The shipped engine requires `-iwad`; clear it if your own port takes a positional WAD |
 | `doom.footer` | `true` | draw the controls row (it costs the game one row) |
 
 `program` is empty in the modal rather than pre-filled with a path, because what it
@@ -266,7 +266,10 @@ resolve against `~/.config/thurbox/ui/` rather than where you meant.
 
 **Why `wad` is separate from `args`.** Arguments are passed as a list and quoted
 individually, so a WAD path containing a space survives as one argument. `args` is
-split on whitespace for flags; the path that must not be split has its own field.
+split on whitespace for flags; the path that must not be split has its own field. The
+default `-iwad` is the shipped engine's requirement, not decoration: without the flag
+it searches the working directory for a handful of well-known WAD names, finds none,
+and exits with `Game mode indeterminate`.
 
 ## Controls
 
