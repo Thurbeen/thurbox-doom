@@ -62,14 +62,19 @@ local PAYLOAD_WAD = "wad/freedoom1.wad"
 --- so the kernel runs it in the interface directory — a relative path would happen
 --- to work today and break the day that changes.
 ---
---- The join uses `/` on every platform, and mixing it into a Windows `ui_dir` is
---- deliberate rather than an oversight: the Win32 file APIs accept both separators,
---- so `C:\…\ui/thurbox-doom/wad/freedoom1.wad` opens, while picking a separator per
---- platform would need a rule about which one `ui_dir` already ends with. Only the
---- TRAILING separator is normalised, and both spellings are stripped there — a
---- backslash is a legal filename character on POSIX, so it is trimmed at the end of a
---- directory path and nowhere else. Written down because a separator assumption has
---- twice shipped green from Linux in the kernel this runs on.
+--- The join uses `/` on every platform, so on Windows the result has MIXED separators
+--- (`C:\Users\me\…\ui/thurbox-doom/wad/freedoom1.wad`). That is safe for a specific
+--- reason worth stating rather than assuming: Windows file APIs accept both
+--- interchangeably, and this string's only destination is a program's argv — the engine
+--- opens it. It would stop being safe if it were ever handed to something doing its own
+--- path parsing, which is the change to notice.
+---
+--- Only the TRAILING separator is normalised, and both spellings are stripped there,
+--- because at the end of a directory path both are unambiguously separators. Interior
+--- bytes are left alone: a backslash is a legal filename character on POSIX, so
+--- stripping one anywhere else would rename somebody's directory. Written down because
+--- a separator assumption has twice shipped green from Linux in the kernel this runs
+--- on — the second time it broke every repository install.
 local function payload(name)
   local dir = thurbox and thurbox.ui_dir
   if type(dir) ~= "string" or dir == "" then
