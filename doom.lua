@@ -40,13 +40,37 @@ local NAME = "doom"
 --- window name, which tmux parses as part of a target string.
 local PANE = "doom"
 
---- What runs when nothing is configured.
+--- Where this package expects its own files: a directory beside the panes, named
+--- after the plugin.
 ---
---- A wrapper on `PATH` rather than a real executable, because every terminal DOOM
---- worth running is launched through something — a node script, a build directory,
---- a WAD flag. The README writes the three-line wrapper; the settings below are
---- the way round it.
-local DEFAULT_PROGRAM = "pi-doom"
+---     <interface dir>/doom/pi-doom          the port, or a wrapper for it
+---     <interface dir>/doom/freedoom1.wad    the WAD
+---
+--- Nothing delivers those yet — `thurbox-cli plugin install` carries Lua only, so
+--- a WAD and an executable cannot travel with a package at all today. Resolving
+--- the defaults here anyway is what makes the pane need NO configuration the
+--- moment they are in place, whether a future installer put them there or you did.
+local PAYLOAD_DIR = "doom"
+local PAYLOAD_PROGRAM = "pi-doom"
+local PAYLOAD_WAD = "freedoom1.wad"
+
+--- The port to fall back to when the interface directory is unknown: a name, so
+--- `PATH` answers it.
+local FALLBACK_PROGRAM = "pi-doom"
+
+--- A path inside this package's payload directory, or nil when the kernel has not
+--- published where the interface lives.
+---
+--- Absolute on purpose. A program pane has no session and therefore no repository,
+--- so the kernel runs it in the interface directory — a relative path would
+--- happen to work today and break the day that changes.
+local function payload(name)
+  local dir = thurbox and thurbox.ui_dir
+  if type(dir) ~= "string" or dir == "" then
+    return nil
+  end
+  return (dir:gsub("[/\\]+$", "")) .. "/" .. PAYLOAD_DIR .. "/" .. name
+end
 
 local RESTART, RELEASE = "doom.restart", "doom.release"
 
@@ -64,12 +88,13 @@ local function setting(id, fallback)
   return value
 end
 
+--- The program to run: what you configured, else the delivered copy, else `PATH`.
 local function program()
-  local named = setting("program", DEFAULT_PROGRAM)
-  if type(named) ~= "string" or named:match("^%s*$") then
-    return DEFAULT_PROGRAM
+  local named = setting("program", "")
+  if type(named) == "string" and not named:match("^%s*$") then
+    return named
   end
-  return named
+  return payload(PAYLOAD_PROGRAM) or FALLBACK_PROGRAM
 end
 
 --- The argument list, as a LIST.
@@ -86,8 +111,14 @@ local function args()
       argv[#argv + 1] = word
     end
   end
+  -- Unset means the delivered WAD, if there is anywhere for one to have been
+  -- delivered to. Failing that, nothing: every port worth running looks for a WAD
+  -- of its own, and a made-up path would turn "no WAD" into "wrong WAD".
   local wad = setting("wad", "")
-  if type(wad) == "string" and wad ~= "" then
+  if type(wad) ~= "string" or wad == "" then
+    wad = payload(PAYLOAD_WAD)
+  end
+  if wad and wad ~= "" then
     argv[#argv + 1] = wad
   end
   return argv
@@ -179,6 +210,12 @@ local function untrusted(ctx)
     line({
       { text = "  it would run  ", style = { fg = theme.muted } },
       { text = widgets.truncate(command_line(), width), style = { fg = theme.accent } },
+    }),
+    line({
+      {
+        text = "  configure `program` and `wad` in settings to run something else",
+        style = { fg = theme.muted },
+      },
     }),
     blank(),
     line({
@@ -288,14 +325,16 @@ return {
   },
 
   settings = {
+    -- Both empty by default, and empty MEANS something: the copy in this
+    -- package's own directory beside the panes. Set either to override it.
     {
       id = "program",
-      desc = "Program to run in the pane (a terminal DOOM that paints text cells)",
-      default = DEFAULT_PROGRAM,
+      desc = "Program to run. Empty = <interface dir>/doom/pi-doom, else PATH",
+      default = "",
     },
     {
       id = "wad",
-      desc = "WAD path, passed as the last argument. Absolute: the pane runs in the interface directory",
+      desc = "WAD, passed as the last argument. Empty = <interface dir>/doom/freedoom1.wad",
       default = "",
     },
     {

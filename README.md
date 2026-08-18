@@ -5,8 +5,17 @@ program pane, frames it, and owns the key rules. The kernel runs the program in 
 real terminal, resizes it to the rect and parses its output into cells — the
 plugin never sees a frame.
 
-A freely-redistributable WAD ships alongside it, so the only thing left to
-install is a terminal DOOM.
+A freely-redistributable WAD ships in this repository, and the plugin expects
+both it and the port in **a directory of its own inside your interface
+directory** — so once they are there it needs no configuration at all:
+
+```text
+~/.config/thurbox/ui/doom/pi-doom          the port, or a wrapper for it
+~/.config/thurbox/ui/doom/freedoom1.wad    the WAD
+```
+
+Getting them there is still two commands rather than part of `plugin install`;
+[why](#why-the-payload-is-not-installed-for-you) is at the end.
 
 ---
 
@@ -77,6 +86,19 @@ cd ~/src/pi-doom
 npm install
 npm install --no-save tsx        # see the note below
 ```
+
+Then put it where the plugin looks, so no settings are needed:
+
+```bash
+mkdir -p ~/.config/thurbox/ui/doom
+printf '#!/bin/sh\nexec %s/node_modules/.bin/tsx %s/src/standalone.ts "$@"\n' \
+  ~/src/pi-doom ~/src/pi-doom > ~/.config/thurbox/ui/doom/pi-doom
+chmod +x ~/.config/thurbox/ui/doom/pi-doom
+cp wad/freedoom1.wad ~/.config/thurbox/ui/doom/       # from this repository
+```
+
+That is the whole configuration. Trust the pane and it plays. If you would rather
+keep the port elsewhere, the two settings below point at it instead.
 
 What I verified on this machine (node v26.7.0, pi-doom at `8257577`):
 
@@ -221,20 +243,17 @@ Declared as data, so they appear in the settings modal and are stored in
 
 | Setting | Default | What it does |
 |---|---|---|
-| `doom.program` | `pi-doom` | the program to run in the pane |
-| `doom.wad` | *(empty)* | WAD path, passed as the **last** argument |
+| `doom.program` | *(empty)* | program to run. Empty means `<interface dir>/doom/pi-doom`, and `pi-doom` from `PATH` if the kernel publishes no interface directory |
+| `doom.wad` | *(empty)* | WAD, passed as the **last** argument. Empty means `<interface dir>/doom/freedoom1.wad`, and no WAD argument at all if there is no interface directory to look in |
 | `doom.args` | *(empty)* | extra arguments, split on spaces |
 | `doom.footer` | `true` | draw the controls row (it costs the game one row) |
 
-Two ways to point it at pi-doom. Either write a wrapper somewhere on `PATH`:
+Empty is not "unset" here, it is "the copy that came with the package". Nothing is
+invented: with no interface directory published, the WAD argument is omitted rather
+than pointed at a path that does not exist, and every port worth running looks for
+a WAD of its own.
 
-```bash
-#!/bin/sh
-# ~/.local/bin/pi-doom
-exec ~/src/pi-doom/node_modules/.bin/tsx ~/src/pi-doom/src/standalone.ts "$@"
-```
-
-…and leave `doom.program` at its default, or skip the wrapper and set:
+To run a port from somewhere else, set them. Skipping the wrapper entirely:
 
 | Setting | Value |
 |---|---|
@@ -304,6 +323,41 @@ this in the pane. It is the first thing to try, and if movement sticks, this is
 why. The setting worth reaching for is `set -g extended-keys on` in `~/.tmux.conf`,
 though on the tmux I checked (3.7b) the manual documents that as `modifyOtherKeys`
 for *modified* keys and mentions neither the Kitty protocol nor release events.
+
+## Why the payload is not installed for you
+
+It should be, and `thurbox-cli plugin install` cannot do it yet. This is not a
+policy I chose; it is four things missing in the package manager, and I checked each
+against the branch rather than assuming:
+
+1. **A package may deliver Lua only.** `validate_destination` in
+   `src/session/plugin_spec.rs` refuses any `path` or `source` that does not end in
+   `.lua`, for the pane and for every module.
+2. **The delivery path cannot carry bytes at all.** `fetch_file` in
+   `src/agent/extension_config.rs` returns a `String` — `read_to_string` locally,
+   an HTTP GET decoded as UTF-8 remotely — and the installer writes that text out.
+   A 28.8 MB WAD or an executable is not "disallowed", it is unrepresentable. The
+   bytes sibling already exists and is used elsewhere (`http_get_to_file`, for
+   release tarballs and self-update), so the seam to generalise is identified.
+3. **There is no executable bit.** Extension manifests have `executable = true` on
+   their `[[files]]`; package manifests have no payload files to mark.
+4. **There is nothing to verify a payload against, and no way to pick one per
+   platform.** The lock records a digest of what was delivered, which is the right
+   shape — but a binary needs its expected `sha256` in the manifest *before* it is
+   trusted, and a native port needs one entry per OS/architecture.
+
+So the ask upstream is a payload section for `plugin.toml` — the semantics
+extensions already have for `[[files]]`, delivered through the bytes path, confined
+to the package's own `<name>/` directory the way modules are confined to
+`lib/<name>/`. This plugin is written so that the day that lands, its defaults
+already point at what the installer would put there and no setting has to change.
+
+Note the part a manifest cannot fix: pi-doom is **not a single binary**. It is a
+node entry point, a WASM module and `node_modules`, so a package could deliver the
+JS and the `.wasm` but the `npm install` would still be yours to run. A port that
+is one statically-linked executable would be genuinely installable — with the
+licence consequence that shipping a GPL-2.0 binary obliges this repository to carry
+its corresponding source too.
 
 ## What this deliberately is not
 
