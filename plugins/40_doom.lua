@@ -93,6 +93,14 @@ local PAYLOAD_WAD = "wad/freedoom1.wad"
 --- after which this table is the only thing in the way: add the key.
 local SHIPPED_ENGINES = { ["linux-x86_64"] = true }
 
+--- Arguments the shipped engine needs, as the `args` setting's declared default.
+---
+--- `-iwad` is not optional for it: without the flag it searches the working directory
+--- for a handful of well-known WAD names, finds none, and exits "Game mode
+--- indeterminate" — which is what a bare path bought before this default existed.
+--- Clear it if you point `program` at a port that takes a positional WAD instead.
+local DEFAULT_ARGS = "-iwad"
+
 --- This platform's engine inside the clone, and the key it was looked up by — the
 --- second is what the panel names when there is no first.
 local function shipped_engine()
@@ -163,7 +171,7 @@ end
 --- whitespace for flags, and `wad` is appended whole.
 local function args()
   local argv = {}
-  local extra = setting("args", "")
+  local extra = setting("args", DEFAULT_ARGS)
   if type(extra) == "string" then
     for word in extra:gmatch("%S+") do
       argv[#argv + 1] = word
@@ -535,8 +543,8 @@ return {
     },
     {
       id = "args",
-      desc = "Extra arguments, split on spaces (a path with spaces belongs in the WAD setting)",
-      default = "",
+      desc = "Arguments before the WAD, split on spaces. The shipped engine needs -iwad",
+      default = DEFAULT_ARGS,
     },
     {
       id = "footer",
