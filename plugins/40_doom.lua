@@ -61,6 +61,15 @@ local PAYLOAD_WAD = "wad/freedoom1.wad"
 --- Absolute on purpose. A program pane has no session and therefore no repository,
 --- so the kernel runs it in the interface directory — a relative path would happen
 --- to work today and break the day that changes.
+---
+--- The join uses `/` on every platform, and mixing it into a Windows `ui_dir` is
+--- deliberate rather than an oversight: the Win32 file APIs accept both separators,
+--- so `C:\…\ui/thurbox-doom/wad/freedoom1.wad` opens, while picking a separator per
+--- platform would need a rule about which one `ui_dir` already ends with. Only the
+--- TRAILING separator is normalised, and both spellings are stripped there — a
+--- backslash is a legal filename character on POSIX, so it is trimmed at the end of a
+--- directory path and nowhere else. Written down because a separator assumption has
+--- twice shipped green from Linux in the kernel this runs on.
 local function payload(name)
   local dir = thurbox and thurbox.ui_dir
   if type(dir) ~= "string" or dir == "" then
