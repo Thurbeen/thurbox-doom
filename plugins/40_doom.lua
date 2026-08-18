@@ -54,14 +54,18 @@ local PANE = "doom"
 --- manager, and neither belongs in a pane's repository.
 local CLONE_DIR = "thurbox-doom"
 
---- The WAD this repository ships, as the `wad` setting's DECLARED default.
+--- The WAD this repository ships and plays by default, as the `wad` setting's
+--- DECLARED default.
 ---
 --- Relative, and declared rather than resolved at read time, because the settings modal
 --- shows a declaration: an empty default reads as "no WAD" to anyone who has not read
 --- the README, which is the wrong thing to tell them about the one file this package
 --- delivers. Relative to the clone, so it stays true whatever the interface directory
 --- turns out to be — resolution happens below.
-local PAYLOAD_WAD = "wad/freedoom1.wad"
+--- `doom1.wad` rather than `freedoom1.wad`: it is DOOM as people remember it, which is
+--- the point of a DOOM pane. Both ship; `wad/NOTICE.md` says what each one is and under
+--- what terms, and switching is this one setting.
+local PAYLOAD_WAD = "wad/doom1.wad"
 
 --- A path inside this repository's working copy, or nil when the kernel has not
 --- published where the interface lives.

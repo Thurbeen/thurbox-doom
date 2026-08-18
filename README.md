@@ -12,7 +12,7 @@ Grant the pane one capability and it plays: nothing to configure, nothing to fet
 ```text
 <interface dir>/thurbox-doom/plugins/40_doom.lua           the pane
 <interface dir>/thurbox-doom/engine/bin/linux-x86_64/doom  DOOM, statically linked
-<interface dir>/thurbox-doom/wad/freedoom1.wad             the WAD
+<interface dir>/thurbox-doom/wad/doom1.wad                 the WAD (Freedoom beside it)
 ```
 
 The binary is **linux-x86_64** only — the one target that could be built *and run*
@@ -139,30 +139,37 @@ and reads its keys from stdin, and the pane frames that instead. A relative path
 resolves inside this plugin's clone, so a build of your own at
 `engine/bin/<os>-<arch>/doom` needs no setting at all.
 
-## The WAD, which does ship here
+## The WADs, both of which ship here
 
 ```text
-wad/freedoom1.wad        Freedoom: Phase 1, 0.13.0 — the single-player campaign
-wad/COPYING.txt          Freedoom's licence, reproduced as its terms require
-wad/CREDITS.txt          the contributor list COPYING.txt refers to
-wad/CREDITS-MUSIC.txt    the music credits
+wad/doom1.wad          DOOM shareware — "Knee-Deep in the Dead", the default
+wad/freedoom1.wad      Freedoom: Phase 1 — the freely-licensed alternative
+wad/NOTICE.md          what each is, its provenance and its terms
 ```
 
-[Freedoom](https://freedoom.github.io/)
-([`freedoom/freedoom`](https://github.com/freedoom/freedoom)) is free game data for the
-DOOM engine under a **modified BSD licence** permitting binary redistribution as long
-as the notice, conditions and disclaimer travel with it — which is what
-`wad/COPYING.txt` is doing there. Phase 1 rather than FreeDM because FreeDM's maps are
-deathmatch arenas with no monster placement.
+**`doom1.wad` is the default** because it is DOOM as people remember it. It is id
+Software's shareware episode, unmodified: 4,196,020 bytes, md5
+`f0cefca49926d00903cf57551d901abe` — the canonical v1.9 shareware WAD — extracted from
+`doom19s.zip` in the idgames archive, id's own multi-volume installer. `DOOM1-README.txt`
+is the README that came with it. Its terms are **id's**, not an open licence: the
+shareware episode was released for free redistribution in unmodified form, which is what
+this is.
 
-Provenance: extracted from `freedoom-0.13.0.zip`, whose SHA256 matched Freedoom's own
-published `freedoom-0.13.0-CHECKSUM` manifest. The shipped file is
+**`freedoom1.wad` is there for anyone who would rather rely on a licence than a
+permission.** Freedoom Phase 1, 0.13.0, sha256 `7323bcc1…f9e703d`, verified against
+Freedoom's published `CHECKSUM` manifest, under a **modified BSD** licence whose terms
+require `COPYING.txt` and `CREDITS.txt` to travel with it — which is why they are there
+and must stay.
+
+Switching is one setting:
 
 ```text
-sha256  7323bcc168c5a45ff10749b339960e98314740a734c30d4b9f3337001f9e703d  freedoom1.wad
+doom.wad = wad/freedoom1.wad
 ```
 
-A shareware or commercial WAD is your own affair, and is what the `wad` setting is for.
+Or point it at any IWAD you own — `doom.wad`, `doom2.wad`, `plutonia.wad`. A commercial
+WAD you bought is yours; shipping one would be somebody else's problem, which is why
+neither is here.
 
 ## Install
 
@@ -243,7 +250,7 @@ Declared as data, so they appear in the settings modal and are stored in
 | Setting | Default | What it does |
 |---|---|---|
 | `doom.program` | *(empty → the shipped engine)* | the DOOM to run. Empty resolves to `engine/bin/<os>-<arch>/doom` inside this clone, which exists for `linux-x86_64`; on a machine with no shipped build the pane says so. A relative path resolves in the clone, an absolute one is used as given |
-| `doom.wad` | `wad/freedoom1.wad` | WAD, passed as the **last** argument. A **relative** path resolves inside this plugin's clone, so the default is the WAD that came with it; an absolute path is used as given |
+| `doom.wad` | `wad/doom1.wad` | WAD, passed as the **last** argument. A **relative** path resolves inside this plugin's clone, so the default is the shareware episode shipped with it; `wad/freedoom1.wad` is the free alternative, and an absolute path is used as given |
 | `doom.args` | `-iwad` | arguments **before** the WAD, split on spaces. The shipped engine requires `-iwad`; clear it if your own port takes a positional WAD |
 | `doom.footer` | `true` | draw the controls row (it costs the game one row) |
 
@@ -365,12 +372,14 @@ This plugin is MIT (see [`LICENSE`](LICENSE)) — Copyright (c) 2026 Thurbeen, m
 shipping a GPL binary obliges — the exact tree the committed binary was compiled from,
 rather than a link to a repository that may move.
 
-**`wad/freedoom1.wad` is Freedoom's modified BSD licence**, which requires the notice,
-conditions and disclaimer to accompany it: `wad/COPYING.txt` and `wad/CREDITS.txt` are
-that accompaniment, and removing them would break the terms.
+**The WADs are game data and neither is MIT.** `wad/NOTICE.md` is the full statement;
+briefly: `doom1.wad` is id Software's shareware episode, redistributed unmodified under
+id's terms rather than an open licence, and `freedoom1.wad` is under Freedoom's
+**modified BSD**, whose conditions require `wad/COPYING.txt` and `wad/CREDITS.txt` to
+accompany it — removing them would break them.
 
-So three licences in three directories: MIT for the pane, GPL-2.0 for the engine, BSD
-for the data. A shareware or commercial WAD you supply yourself is your own affair.
+So: MIT for the pane, GPL-2.0 for the engine, and for the data one open licence and one
+permission. A commercial WAD you supply yourself is your own affair.
 
 ## Status
 
