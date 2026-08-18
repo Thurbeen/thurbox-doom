@@ -40,36 +40,52 @@ local NAME = "doom"
 --- window name, which tmux parses as part of a target string.
 local PANE = "doom"
 
---- Where this package expects its own files: a directory beside the panes, named
---- after the plugin.
+--- This repository's working copy, inside the interface directory.
 ---
----     <interface dir>/doom/pi-doom          the port, or a wrapper for it
----     <interface dir>/doom/freedoom1.wad    the WAD
+--- `thurbox-cli plugin install git+<url>` clones a plugin that carries a payload,
+--- and the clone lands at `<interface dir>/<repository name>/` — so this is the
+--- REPOSITORY's name, not the plugin's, and everything the repo holds arrives with
+--- it:
 ---
---- Nothing delivers those yet — `thurbox-cli plugin install` carries Lua only, so
---- a WAD and an executable cannot travel with a package at all today. Resolving
---- the defaults here anyway is what makes the pane need NO configuration the
---- moment they are in place, whether a future installer put them there or you did.
-local PAYLOAD_DIR = "doom"
-local PAYLOAD_PROGRAM = "pi-doom"
-local PAYLOAD_WAD = "freedoom1.wad"
+---     <interface dir>/thurbox-doom/bin/doom            the launcher, executable
+---     <interface dir>/thurbox-doom/wad/freedoom1.wad   the WAD
+---
+--- Which is what makes this pane need no configuration at all after an install.
+local CLONE_DIR = "thurbox-doom"
+local PAYLOAD_PROGRAM = "bin/doom"
+local PAYLOAD_WAD = "wad/freedoom1.wad"
 
 --- The port to fall back to when the interface directory is unknown: a name, so
 --- `PATH` answers it.
 local FALLBACK_PROGRAM = "pi-doom"
 
---- A path inside this package's payload directory, or nil when the kernel has not
+--- A path inside this repository's working copy, or nil when the kernel has not
 --- published where the interface lives.
 ---
 --- Absolute on purpose. A program pane has no session and therefore no repository,
---- so the kernel runs it in the interface directory — a relative path would
---- happen to work today and break the day that changes.
+--- so the kernel runs it in the interface directory — a relative path would happen
+--- to work today and break the day that changes.
 local function payload(name)
   local dir = thurbox and thurbox.ui_dir
   if type(dir) ~= "string" or dir == "" then
     return nil
   end
-  return (dir:gsub("[/\\]+$", "")) .. "/" .. PAYLOAD_DIR .. "/" .. name
+  return (dir:gsub("[/\\]+$", "")) .. "/" .. CLONE_DIR .. "/" .. name
+end
+
+--- Is there anything here for this machine?
+---
+--- `thurbox.platform` is the kernel's answer to platform selection: it publishes
+--- `os` and `arch` and models nothing, so each plugin states the rule it actually
+--- needs. Mine is narrow and honest — the launcher is a POSIX shell script, so on
+--- Windows it says so rather than failing to exec and leaving the reader to guess.
+--- A user with their own engine can still set `program` and be right.
+local function unsupported_os()
+  local platform = (thurbox and thurbox.platform) or {}
+  if platform.os == "windows" then
+    return "windows"
+  end
+  return nil
 end
 
 local RESTART, RELEASE = "doom.restart", "doom.release"
@@ -239,6 +255,37 @@ local function untrusted(ctx)
   })
 end
 
+--- What to draw on a machine this plugin has nothing for.
+---
+--- Politely, and with the way out: the launcher shipped here is a POSIX shell
+--- script, but the pane itself is indifferent — point `program` at any terminal
+--- DOOM that paints text cells and it will frame it.
+local function unsupported(ctx, os_name)
+  return panel(ctx, {
+    blank(),
+    line({
+      { text = "  Nothing here runs on ", style = { fg = theme.text } },
+      { text = os_name, style = { fg = theme.accent } },
+      { text = " yet.", style = { fg = theme.text } },
+    }),
+    blank(),
+    line({
+      {
+        text = "  The launcher this plugin ships is a POSIX shell script. Set the",
+        style = { fg = theme.muted },
+      },
+    }),
+    line({
+      {
+        text = "  `program` setting to a terminal DOOM of your own and this pane",
+        style = { fg = theme.muted },
+      },
+    }),
+    line({ { text = "  will frame it just the same.", style = { fg = theme.muted } } }),
+    { type = "text", fill = 1, text = "" },
+  })
+end
+
 --- What to draw after the pane has been given up on purpose.
 ---
 --- Without this there is no way back: `render` asks for the pane on every frame,
@@ -257,8 +304,10 @@ end
 
 --- The controls, most useful first, so trimming from the end costs least.
 ---
---- `tab` is absent deliberately: it is DOOM's automap and the kernel reserves it
---- for focus, so it never arrives. `q` is here because quitting the game leaves an
+--- `tab` IS here. An earlier version of this file left it out, claiming the kernel
+--- reserved it for focus; that was wrong — the reserved set is `ctrl+q`, `f10`,
+--- `ctrl+h`, `ctrl+l` and `f12`, and `tab` is forwarded to the focused pane on
+--- purpose. The automap works. `q` is here because quitting the game leaves an
 --- exited pane rather than closing this one.
 local CONTROLS = {
   { "wasd/↑↓←→", "move" },
@@ -266,6 +315,7 @@ local CONTROLS = {
   { "space", "use" },
   { "⇧wasd", "run" },
   { "1-7", "weapon" },
+  { "tab", "map" },
   { "esc", "menu" },
   { "q", "quit game" },
 }
@@ -329,12 +379,12 @@ return {
     -- package's own directory beside the panes. Set either to override it.
     {
       id = "program",
-      desc = "Program to run. Empty = <interface dir>/doom/pi-doom, else PATH",
+      desc = "Program to run. Empty = the launcher in this plugin's own clone, else PATH",
       default = "",
     },
     {
       id = "wad",
-      desc = "WAD, passed as the last argument. Empty = <interface dir>/doom/freedoom1.wad",
+      desc = "WAD, passed as the last argument. Empty = the one in this plugin's own clone",
       default = "",
     },
     {
@@ -350,6 +400,15 @@ return {
   },
 
   render = function(ctx)
+    -- Before the grant is even relevant: nothing to start here is worse than
+    -- untrusted, and asking for a program that cannot exec would report a failure
+    -- that reads like a bug in the pane. Skipped when `program` is set, since then
+    -- the launcher shipped here is not what would run.
+    local elsewhere = setting("program", "")
+    local unusable = unsupported_os()
+    if unusable and (type(elsewhere) ~= "string" or elsewhere:match("^%s*$")) then
+      return unsupported(ctx, unusable)
+    end
     if not granted() then
       return untrusted(ctx)
     end
