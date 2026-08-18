@@ -4,13 +4,20 @@ DOOM in a thurbox pane. One Lua file asks the kernel for a program pane, frames 
 and owns the key rules; the kernel runs the program in a real terminal, resizes it to
 the rect and parses its output into cells. The plugin never sees a frame.
 
-**It ships game data, not a game.** A freely-redistributable WAD travels with the
-plugin; which DOOM to run is one setting, and yours to choose.
+**Everything it needs ships with it, DOOM included.**
+`thurbox-cli plugin install git+…` clones this repository into your interface
+directory, which brings the pane, a built engine and a freely-redistributable WAD.
+Grant the pane one capability and it plays: nothing to configure, nothing to fetch.
 
 ```text
-<interface dir>/thurbox-doom/plugins/40_doom.lua   the pane
-<interface dir>/thurbox-doom/wad/freedoom1.wad     the WAD
+<interface dir>/thurbox-doom/plugins/40_doom.lua           the pane
+<interface dir>/thurbox-doom/engine/bin/linux-x86_64/doom  DOOM, statically linked
+<interface dir>/thurbox-doom/wad/freedoom1.wad             the WAD
 ```
+
+The binary is **linux-x86_64** only — the one target that could be built *and run*
+where this was written. On any other machine the pane names it and points at
+`engine/src`, which is a `make` away, or at the `doom.program` setting.
 
 ---
 
@@ -99,23 +106,38 @@ If you would rather have DOOM beside the agent instead of taking turns with it, 
 the pane a slot of its own and place that slot in `layout.lua` — two lines, and
 `thurbox-cli plugin check` prints the one you need.
 
-## What to point it at
+## The engine
 
-Any terminal DOOM that meets three conditions:
+`engine/` is DOOM, built for this pane, **plus the complete source it was built
+from** — which is what GPL-2.0 obliges anyone shipping a binary to provide.
+`engine/README.md` carries the provenance, checksums and rebuild recipe; the short
+version:
 
-1. **It paints text cells** — ordinary characters and SGR colour. A surface carries
-   *characters*, so a port that paints images through a terminal graphics protocol
-   (Kitty graphics, Sixel) has nothing to be parsed into and will not render here.
-   Half-blocks, block elements, braille and plain ASCII are all cells.
-2. **It reads its keys from stdin**, which is what `input = "session"` forwards.
-3. **It takes a WAD path.** This plugin appends the WAD as the *last* argument; a port
-   wanting a flag takes it from the `args` setting, so `args = "-iwad"` gives you
-   `-iwad <wad>`.
+| | |
+|---|---|
+| binary | `engine/bin/linux-x86_64/doom`, 1.5 MB, statically linked — no runtime, no shared libraries |
+| source | [doomgeneric](https://github.com/ozkl/doomgeneric) at `dcb7a8d`, unmodified, plus `doomgeneric_thurbox.c` |
+| rebuild | `cd engine/src && make` — a C compiler and `make`, nothing else |
+| licence | **GPL-2.0** (`engine/LICENSE`). The pane is MIT; the WAD is Freedoom's BSD |
 
-One property is worth choosing on, because of a kernel limitation documented below:
-**prefer a port that derives key-up from timing** — one that treats a key as released
-after a quiet interval — over one that waits for real release events. The second kind
-will latch held keys inside this pane, and no configuration fixes it.
+Three things its frontend does deliberately, because a pane is not a terminal
+emulator:
+
+- **It paints cells.** One `▀` per character, top pixel in the foreground and bottom
+  in the background at 24-bit colour — two vertical pixels per cell. A surface
+  carries *characters*, so a port using a terminal graphics protocol (Kitty
+  graphics, Sixel) would have nothing to be parsed into.
+- **It diffs frames.** Only cells whose colour changed are emitted, in runs, inside
+  synchronised-output markers. Measured against a full-repaint port on the same WAD
+  and terminal size: **~11 KB a frame rather than ~53 KB**, about 0.7 MB/s rather
+  than 3.7.
+- **It synthesises key releases from timing**, which is what makes held keys usable
+  here at all — see [Held keys](#held-keys-and-why-this-engine-handles-them).
+
+You are not stuck with it: point `doom.program` at any DOOM that paints text cells
+and reads its keys from stdin, and the pane frames that instead. A relative path
+resolves inside this plugin's clone, so a build of your own at
+`engine/bin/<os>-<arch>/doom` needs no setting at all.
 
 ## The WAD, which does ship here
 
@@ -220,16 +242,17 @@ Declared as data, so they appear in the settings modal and are stored in
 
 | Setting | Default | What it does |
 |---|---|---|
-| `doom.program` | *(empty — required)* | the terminal DOOM to run. Until it is set the pane starts nothing and says so |
+| `doom.program` | *(empty → the shipped engine)* | the DOOM to run. Empty resolves to `engine/bin/<os>-<arch>/doom` inside this clone, which exists for `linux-x86_64`; on a machine with no shipped build the pane says so. A relative path resolves in the clone, an absolute one is used as given |
 | `doom.wad` | `wad/freedoom1.wad` | WAD, passed as the **last** argument. A **relative** path resolves inside this plugin's clone, so the default is the WAD that came with it; an absolute path is used as given |
 | `doom.args` | *(empty)* | extra arguments, split on spaces |
 | `doom.footer` | `true` | draw the controls row (it costs the game one row) |
 
-There is no default `program`, because nothing here could honestly supply one: a guess
-would be a path that does not exist on most machines, and "no such file or directory"
-is a worse first impression than a pane that says what it needs. `wad` is the opposite
-case — this package delivers exactly one — so its default **names that file**, and the
-settings modal shows it rather than an empty box.
+`program` is empty in the modal rather than pre-filled with a path, because what it
+resolves to depends on the machine: the pane asks `thurbox.platform` and looks for the
+build this repository ships for that `os-arch`. It knows which ones were committed, so
+it never exec's a path it has no reason to believe in — on an unshipped platform it
+names the machine and offers the two ways forward. `wad` is simpler: one file ships, so
+its default **names that file**.
 
 The pane shows those paths **in full**, wrapped rather than truncated, because a path
 you are meant to copy is no use with its filename cut off — a long interface directory
@@ -252,18 +275,19 @@ Everything the plugin does not claim goes to the program, because it declares
 
 | Action | Keys |
 |---|---|
-| move | `↑` `↓` `←` `→` |
-| fire | `ctrl` |
+| move | `↑` `↓` `←` `→`, or `w` `a` `s` `d` |
+| turn | `q` `e` |
+| fire | `f`, or any `ctrl` chord |
 | use / open | `space` |
-| run | `shift` |
+| run | `r` |
 | strafe | `,` `.` |
 | weapons | `1`–`7` |
 | automap | `tab` |
-| menu | `esc` |
+| menu / back | `esc` |
 
-Those are **DOOM's own defaults**, not a particular port's — this plugin ships no
-engine, so it has no business claiming one's key map. A port that rebinds them will
-disagree with that row; most take a config file of their own.
+Those are the shipped engine's, and they are DOOM's own where a terminal can express
+them plus substitutes where it cannot: nothing can see a bare `shift` or `ctrl` held
+down, so `r` runs and `f` fires. A `program` of your own will have its own map.
 
 | Chord | Does |
 |---|---|
@@ -277,32 +301,26 @@ plugin-scoped and fire only while this pane has focus. All three are rebindable
 chords because a declared chord is consumed before the surface ever sees it, and DOOM
 wants every bare key there is — the letters included, for cheats.
 
-### Held keys latch, and that is a kernel limitation
+### Held keys, and why this engine handles them
 
-**Confirmed, not suspected, and there is nothing you can configure.** A port that
-waits for real key-*release* events will never get one inside a pane, so a held
-direction key stays down and you keep walking.
+thurbox **cannot deliver key-release events**, and that is a kernel limitation with
+two independent causes, both confirmed upstream: its terminal layer asks the outer
+terminal for `DISAMBIGUATE_ESCAPE_CODES` and never `REPORT_EVENT_TYPES` — the Kitty
+flag that makes releases reported at all — and its event loop matches
+`KeyEventKind::Press`, so a release would be dropped even if one arrived. It is
+recorded upstream as **D12**, deliberately not fixed: forwarding a release needs an
+encoding the key path does not have, and getting it wrong would double keystrokes in
+every agent pane, which is worse than a latched key in a game.
 
-Two independent causes, both in the kernel, reported by this plugin and confirmed
-upstream:
+A port that waits for a release therefore walks you into a wall. **The shipped engine
+does not wait.** A key is released once it has been quiet for `-release <ms>`
+(default 90), because auto-repeat keeps a held key arriving — so holding a direction
+moves you and letting go stops you. Tune it by adding `-release 60` to `doom.args` if
+your terminal repeats slowly or quickly.
 
-1. `push_keyboard_enhancement` asks the outer terminal for
-   `DISAMBIGUATE_ESCAPE_CODES` and never `REPORT_EVENT_TYPES` — the Kitty flag that
-   makes a terminal report releases at all. The outer terminal is never asked, so
-   there is nothing to deliver.
-2. The event loop matches `KeyEventKind::Press`, so a release would be dropped even if
-   one arrived.
-
-It is recorded as **D12** in `openspec/changes/v2-plugin-programs/`' design, with the
-shape of a fix: forwarding a release needs an encoding `key_to_bytes` does not have,
-and should only reach a program that asked for it by writing `CSI > 3 u` to its own
-pty — get that wrong and every agent pane doubles its keystrokes, which is a worse
-failure than a latched key in a game. So it is a known limitation rather than an
-oversight.
-
-Earlier versions of this README suggested `set -g extended-keys on` in `~/.tmux.conf`.
-**That was wrong** and is removed: tmux is not the layer that drops them. Choose a port
-that derives key-up from timing and this does not arise.
+If you point `doom.program` at some other DOOM, this is the property to check first.
+Earlier revisions of this README suggested `set -g extended-keys on` in `~/.tmux.conf`:
+**that was wrong** and is gone — tmux is not the layer dropping them.
 
 ### Retracted: `tab` works
 
@@ -329,7 +347,9 @@ the data and naming the requirement is the honest division.
 
 ## Credits
 
-- **id Software**, for DOOM.
+- **id Software**, for DOOM, and for releasing its source.
+- **[doomgeneric](https://github.com/ozkl/doomgeneric)** by ozkl, the portable split
+  that makes a frontend this small possible: six functions and a framebuffer.
 - **[Freedoom](https://freedoom.github.io/)**, for game data anyone may ship.
 
 ## Licences
@@ -337,34 +357,38 @@ the data and naming the requirement is the honest division.
 This plugin is MIT (see [`LICENSE`](LICENSE)) — Copyright (c) 2026 Thurbeen, matching
 `Thurbeen/thurbox`.
 
-`wad/freedoom1.wad` is **not** MIT. It ships under Freedoom's **modified BSD** licence,
-which requires the notice, conditions and disclaimer to accompany it: `wad/COPYING.txt`
-and `wad/CREDITS.txt` are that accompaniment, and removing them would break the terms.
+**`engine/` is GPL-2.0**, not MIT: it is DOOM's source and a binary built from it.
+`engine/LICENSE` is the licence, and `engine/src/` is the corresponding source that
+shipping a GPL binary obliges — the exact tree the committed binary was compiled from,
+rather than a link to a repository that may move.
 
-No engine ships here, so no engine licence applies to this repository. Whatever you
-point `program` at is yours to obtain and abide by — DOOM ports are commonly GPL-2.0 —
-and a shareware or commercial WAD likewise.
+**`wad/freedoom1.wad` is Freedoom's modified BSD licence**, which requires the notice,
+conditions and disclaimer to accompany it: `wad/COPYING.txt` and `wad/CREDITS.txt` are
+that accompaniment, and removing them would break the terms.
+
+So three licences in three directories: MIT for the pane, GPL-2.0 for the engine, BSD
+for the data. A shareware or commercial WAD you supply yourself is your own affair.
 
 ## Status
 
 Written against branch `thurbox-v2-ui-approach` — at the point where install-by-clone,
 the `program` capability and manifest-named panes had all landed — reading
-`docs/PLUGINS.md`, `ui/AGENTS.md`, `src/kernel/command.rs`, `src/kernel/convert.rs`,
-`src/kernel/terminal.rs`, `src/kernel/host.rs`, `src/session/plugin_spec.rs`,
-`src/kernel/packages.rs` and `thurbox.yml`.
+`docs/PLUGINS.md`, `ui/AGENTS.md` and the kernel sources for the contract.
 
 Gates: `luac -p`, `selene` against the `thurbox.yml` **from the branch you build
-against** — that file is the sandbox definition, and it is where `thurbox.granted` and
-`thurbox.platform` are declared, so a copy from before them rejects this file — and
-`stylua --check` with the pinned `.stylua.toml`. A stub harness (kernel
-globals faked, `lib/theme.lua`, `lib/widgets.lua` and `lib/settings.lua` the real
-files) exercises the unconfigured, untrusted, running and released states, the
-every-frame ask, argument assembly including a WAD path with a space staying one
-argument, the `ui_dir` resolution and its fallbacks, a whitespace-only `program`
-counting as unset, the error path, both chords, the automap hint, and every emitted
-node against the fields `convert.rs` accepts.
+against** (the sandbox definition, where `thurbox.granted` and `thurbox.platform` are
+declared, so an older copy rejects this file), and `stylua --check` with the pinned
+`.stylua.toml`. A stub harness — kernel globals faked, `lib/theme.lua`,
+`lib/widgets.lua` and `lib/settings.lua` the real files — covers the shipped-engine and
+unshipped-platform states, untrusted, running and released, the every-frame ask, argv
+assembly (relative and absolute `program` and `wad`, a path with a space, a
+Windows-shaped `ui_dir`), the long-path wrapping, both chords, the pill, the automap
+hint, and every emitted node against the fields `convert.rs` accepts.
 
-**I have never seen this pane render.** The interface cannot be launched from where
-this was written, so no visual claim here comes from a screen — it is read from the
-kernel's source. Also untested: every `thurbox-cli plugin` command, because the
-installed CLI is `0.0.0-dev` and has no `plugin` subcommand.
+**The engine is measured, the pane is not.** The committed binary was built and run
+here: statically linked, 1.5 MB, playing the shipped WAD, emitting ~297k half-blocks
+with paired truecolor runs and zero graphics-protocol bytes at ~0.7 MB/s. The pane
+around it has been seen to render by the maintainer of the v2 branch, in their terminal,
+at an earlier commit — not by me, and not with this engine in place. Also unrun here:
+every `thurbox-cli plugin` command, because the installed CLI is `0.0.0-dev` and has no
+`plugin` subcommand.

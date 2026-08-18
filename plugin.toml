@@ -17,8 +17,8 @@
 # No engine ships here. Which DOOM to run is the `program` setting; the pane says so
 # until it is set. See the README.
 name = "doom"
-description = "DOOM in a pane: a program surface and a WAD"
-version = "v0.4.0"
+description = "DOOM in a pane: a program surface, a built engine and a WAD"
+version = "v0.5.0"
 requires_thurbox = ">=2.0"
 
 pane = { source = "plugins/40_doom.lua", path = "plugins/40_doom.lua" }
