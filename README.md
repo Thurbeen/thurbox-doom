@@ -96,8 +96,11 @@ nothing until it is focused. Install it, launch thurbox and you will see the age
 — which is why the plugin advertises itself three ways:
 
 - a **DOOM** entry in the action band along the bottom;
-- **`f7`** from anywhere (rebindable, and it appears in `F1` help);
-- the focus ring — `tab` / `shift+tab`, or `ctrl+h` / `ctrl+l`.
+- **`f7`** from anywhere (rebindable, and it appears in `F1` help). **The same key takes
+  you back**: pressed while the pane has focus it returns to whatever you were in
+  before, so one key is both the way in and the way out;
+- the focus ring — `tab` / `shift+tab`, or `ctrl+h` / `ctrl+l` — if you would rather
+  walk.
 
 Reported by someone who installed it cold and saw an empty-looking interface, which is
 the failure worth avoiding: "installed correctly and appears to have done nothing".
@@ -301,7 +304,7 @@ down, so `r` runs and `f` fires. A `program` of your own will have its own map.
 
 | Chord | Does |
 |---|---|
-| `f7` | show the DOOM pane (global) |
+| `f7` | show the DOOM pane, or leave it if it already has focus (global) |
 | `ctrl+alt+r` | restart DOOM in this pane |
 | `ctrl+alt+x` | stop it and give up the pane |
 
