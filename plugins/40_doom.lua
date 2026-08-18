@@ -44,20 +44,16 @@ local PANE = "doom"
 ---
 --- `thurbox-cli plugin install git+<url>` clones a plugin that carries a payload,
 --- and the clone lands at `<interface dir>/<repository name>/` — so this is the
---- REPOSITORY's name, not the plugin's, and everything the repo holds arrives with
---- it:
+--- REPOSITORY's name, not the plugin's. What it carries is one thing:
 ---
----     <interface dir>/thurbox-doom/bin/doom            the launcher, executable
----     <interface dir>/thurbox-doom/wad/freedoom1.wad   the WAD
+---     <interface dir>/thurbox-doom/wad/freedoom1.wad
 ---
---- Which is what makes this pane need no configuration at all after an install.
+--- A WAD, and nothing else. No engine ships here and none is fetched: which DOOM to
+--- run is the `program` setting, and until that is set this pane starts nothing.
+--- Deliberate — an engine is a GPL binary or a build tree with its own package
+--- manager, and neither belongs in a pane's repository.
 local CLONE_DIR = "thurbox-doom"
-local PAYLOAD_PROGRAM = "bin/doom"
 local PAYLOAD_WAD = "wad/freedoom1.wad"
-
---- The port to fall back to when the interface directory is unknown: a name, so
---- `PATH` answers it.
-local FALLBACK_PROGRAM = "pi-doom"
 
 --- A path inside this repository's working copy, or nil when the kernel has not
 --- published where the interface lives.
@@ -71,21 +67,6 @@ local function payload(name)
     return nil
   end
   return (dir:gsub("[/\\]+$", "")) .. "/" .. CLONE_DIR .. "/" .. name
-end
-
---- Is there anything here for this machine?
----
---- `thurbox.platform` is the kernel's answer to platform selection: it publishes
---- `os` and `arch` and models nothing, so each plugin states the rule it actually
---- needs. Mine is narrow and honest — the launcher is a POSIX shell script, so on
---- Windows it says so rather than failing to exec and leaving the reader to guess.
---- A user with their own engine can still set `program` and be right.
-local function unsupported_os()
-  local platform = (thurbox and thurbox.platform) or {}
-  if platform.os == "windows" then
-    return "windows"
-  end
-  return nil
 end
 
 local RESTART, RELEASE = "doom.restart", "doom.release"
@@ -104,13 +85,17 @@ local function setting(id, fallback)
   return value
 end
 
---- The program to run: what you configured, else the delivered copy, else `PATH`.
+--- The program to run, or nil when nothing is configured.
+---
+--- No default, because nothing here can honestly supply one. A guess would be a path
+--- that does not exist on most machines, and "no such file or directory" is a worse
+--- first impression than a pane that says plainly what it needs.
 local function program()
   local named = setting("program", "")
-  if type(named) == "string" and not named:match("^%s*$") then
-    return named
+  if type(named) ~= "string" or named:match("^%s*$") then
+    return nil
   end
-  return payload(PAYLOAD_PROGRAM) or FALLBACK_PROGRAM
+  return named
 end
 
 --- The argument list, as a LIST.
@@ -255,35 +240,47 @@ local function untrusted(ctx)
   })
 end
 
---- What to draw on a machine this plugin has nothing for.
+--- What to draw before a DOOM has been named.
 ---
---- Politely, and with the way out: the launcher shipped here is a POSIX shell
---- script, but the pane itself is indifferent — point `program` at any terminal
---- DOOM that paints text cells and it will frame it.
-local function unsupported(ctx, os_name)
-  return panel(ctx, {
+--- The first thing a reader sees after installing, and the only screen that has any
+--- work for them: this repository ships game DATA and no engine, so the one thing it
+--- cannot know is which DOOM you want. It shows the WAD it brought, since that is the
+--- argument the program will be handed.
+local function needs_program(ctx)
+  local width = math.max(0, (ctx.width or 0) - 6)
+  local wad = payload(PAYLOAD_WAD)
+  local children = {
+    blank(),
+    line({ { text = "  Point this pane at a terminal DOOM.", style = { fg = theme.text } } }),
     blank(),
     line({
-      { text = "  Nothing here runs on ", style = { fg = theme.text } },
-      { text = os_name, style = { fg = theme.accent } },
-      { text = " yet.", style = { fg = theme.text } },
+      { text = "  settings (ctrl+, or F6) → ", style = { fg = theme.muted } },
+      { text = "doom.program", style = { fg = theme.accent } },
+      { text = "  — any DOOM that paints text", style = { fg = theme.muted } },
     }),
-    blank(),
     line({
       {
-        text = "  The launcher this plugin ships is a POSIX shell script. Set the",
+        text = "  cells and reads its keys from stdin. Cells, not a graphics protocol:",
         style = { fg = theme.muted },
       },
     }),
     line({
-      {
-        text = "  `program` setting to a terminal DOOM of your own and this pane",
-        style = { fg = theme.muted },
-      },
+      { text = "  a surface carries characters, so an image has nothing to parse into.", style = { fg = theme.muted } },
     }),
-    line({ { text = "  will frame it just the same.", style = { fg = theme.muted } } }),
-    { type = "text", fill = 1, text = "" },
+    blank(),
+  }
+  if wad then
+    children[#children + 1] =
+      line({ { text = "  the WAD this plugin ships, passed as the last argument:", style = { fg = theme.muted } } })
+    children[#children + 1] = line({ { text = "  " .. widgets.truncate(wad, width), style = { fg = theme.accent } } })
+    children[#children + 1] = blank()
+  end
+  children[#children + 1] = line({
+    { text = "  Then trust it: settings → ] → this file → ", style = { fg = theme.muted } },
+    { text = "t", style = { fg = theme.hint, bold = true } },
   })
+  children[#children + 1] = { type = "text", fill = 1, text = "" }
+  return panel(ctx, children)
 end
 
 --- What to draw after the pane has been given up on purpose.
@@ -304,20 +301,23 @@ end
 
 --- The controls, most useful first, so trimming from the end costs least.
 ---
+--- DOOM's own defaults, not a particular port's: this plugin ships no engine and so
+--- has no business claiming one's key map. A port that rebinds them will disagree
+--- with this row, which is why the README says whose keys these are.
+---
 --- `tab` IS here. An earlier version of this file left it out, claiming the kernel
 --- reserved it for focus; that was wrong — the reserved set is `ctrl+q`, `f10`,
 --- `ctrl+h`, `ctrl+l` and `f12`, and `tab` is forwarded to the focused pane on
---- purpose. The automap works. `q` is here because quitting the game leaves an
---- exited pane rather than closing this one.
+--- purpose. The automap works.
 local CONTROLS = {
-  { "wasd/↑↓←→", "move" },
-  { "f", "fire" },
+  { "↑↓←→", "move" },
+  { "ctrl", "fire" },
   { "space", "use" },
-  { "⇧wasd", "run" },
+  { "⇧", "run" },
+  { ", .", "strafe" },
   { "1-7", "weapon" },
   { "tab", "map" },
   { "esc", "menu" },
-  { "q", "quit game" },
 }
 
 --- The widest prefix of `CONTROLS` that fits one row. `widgets.hints` packs
@@ -375,11 +375,11 @@ return {
   },
 
   settings = {
-    -- Both empty by default, and empty MEANS something: the copy in this
-    -- package's own directory beside the panes. Set either to override it.
+    -- `program` has no default worth guessing, so the pane says so until it is set.
+    -- `wad` does: empty means the one this repository brought with it.
     {
       id = "program",
-      desc = "Program to run. Empty = the launcher in this plugin's own clone, else PATH",
+      desc = "The terminal DOOM to run. Required: this plugin ships a WAD, not an engine",
       default = "",
     },
     {
@@ -400,14 +400,11 @@ return {
   },
 
   render = function(ctx)
-    -- Before the grant is even relevant: nothing to start here is worse than
-    -- untrusted, and asking for a program that cannot exec would report a failure
-    -- that reads like a bug in the pane. Skipped when `program` is set, since then
-    -- the launcher shipped here is not what would run.
-    local elsewhere = setting("program", "")
-    local unusable = unsupported_os()
-    if unusable and (type(elsewhere) ~= "string" or elsewhere:match("^%s*$")) then
-      return unsupported(ctx, unusable)
+    -- Before the grant is relevant: with no program named there is nothing to grant
+    -- a capability FOR, and asking for one would be refused as a plugin error. So
+    -- configuration comes first, and it is one setting.
+    if not program() then
+      return needs_program(ctx)
     end
     if not granted() then
       return untrusted(ctx)
@@ -420,6 +417,7 @@ return {
     -- rather than a second copy of the program, so there is no clever place to
     -- start it once — and a pane that only asked on a keypress would come back
     -- empty after a reload.
+    -- `program()` cannot be nil here: the branch above returned when it was.
     command("program", { text = PANE, repo = program(), args = args() })
 
     local failed = ask_error()

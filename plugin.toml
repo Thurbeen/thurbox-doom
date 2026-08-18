@@ -1,25 +1,24 @@
 # The DOOM pane.
 #
-# This plugin carries a payload — a launcher and a WAD — so it is installed by
-# CLONING it, which brings everything the repository holds:
+# This plugin carries a WAD, so it is installed by CLONING it — the file-by-file
+# path decodes what it fetches as UTF-8 and would corrupt game data:
 #
 #     thurbox-cli plugin install git+https://github.com/Thurbeen/thurbox-doom
 #
 # The clone lands at `<interface dir>/thurbox-doom/`, keeps its `.git` (so `update`
-# is a fetch and your edits are protected), and `install` finds the pane itself:
-# the single `.lua` under `plugins/`. The lock records the commit, which is why
-# there is nothing to checksum here.
+# is a fetch and your edits are protected), and `pane.source` below is what names
+# the entry point inside it. Failing a manifest, install takes the single `.lua`
+# under `plugins/`. The lock records the commit, which is why there is nothing to
+# checksum here.
 #
 # NOT `thurbox-cli plugin install doom` — a bare name resolves into the thurbox
 # repository's own examples, which is a different, smaller pane.
 #
-# This manifest is for the other install path: a bare URL or a local path, which
-# fetches the files it names and cannot carry the WAD or the launcher (that path is
-# text-only). It is kept so `plugin install <path-to-this-clone>` still delivers a
-# working pane — configured by hand — but `git+` is the one to use.
+# No engine ships here. Which DOOM to run is the `program` setting; the pane says so
+# until it is set. See the README.
 name = "doom"
-description = "DOOM in a pane: a program surface, a launcher and a WAD"
-version = "v0.3.0"
+description = "DOOM in a pane: a program surface and a WAD"
+version = "v0.4.0"
 requires_thurbox = ">=2.0"
 
 pane = { source = "plugins/40_doom.lua", path = "plugins/40_doom.lua" }
