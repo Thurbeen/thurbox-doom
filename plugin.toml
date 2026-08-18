@@ -8,15 +8,18 @@
 #
 #     thurbox-cli plugin install https://raw.githubusercontent.com/Thurbeen/thurbox-doom/main
 #
+# NOT `thurbox-cli plugin install doom` — a bare name resolves to `ui-plugins/doom`
+# in the thurbox repository, which is the kernel's own smaller example pane.
+#
 # `--as plugins/NN_doom.lua` moves it; the number is load order and yours to
 # choose. It matches the pane's own `order = 40` here so the two read alike.
 #
 # Only Lua is delivered: every destination a package declares must end in `.lua`,
-# so `wad/freedoom1.wad` is NOT installed by this. It stays in the clone, and
-# `agents.toml` names it by absolute path. See the README.
+# so `wad/freedoom1.wad` is NOT installed by this. Keep the clone (or move the WAD
+# somewhere of your own) and name it in the plugin's `wad` setting. See the README.
 name = "doom"
-description = "DOOM as a session: frame a terminal DOOM port in a live surface"
-version = "v0.1.0"
+description = "DOOM in a pane: frame a terminal DOOM port in a program surface"
+version = "v0.2.0"
 requires_thurbox = ">=2.0"
 
 pane = { source = "doom.lua", path = "plugins/40_doom.lua" }
