@@ -184,11 +184,18 @@ git clone https://github.com/Thurbeen/thurbox-doom ~/src/thurbox-doom
 thurbox-cli plugin install ~/src/thurbox-doom
 ```
 
-Or straight from GitHub's raw host, no clone:
+Or straight from GitHub's raw host, no clone — the manager fetches `plugin.toml`
+and then the pane from that base:
 
 ```bash
 thurbox-cli plugin install https://raw.githubusercontent.com/Thurbeen/thurbox-doom/main
 ```
+
+**The `main` URL works only once this manifest is on `main`.** While it was still
+on a branch I measured `…/main/plugin.toml` as a 404 and both
+`…/<branch>/plugin.toml` and `…/<commit-sha>/plugin.toml` as 200 — so if you get a
+404, put a branch name or a sha where `main` is. A sha is what you want for
+reproducibility anyway (see the pin note below).
 
 Either way the pane lands at `plugins/40_doom.lua` under your interface directory
 and the entry is written into `plugins.toml` beside it:
