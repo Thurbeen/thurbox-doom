@@ -40,14 +40,22 @@ On a build older than those, the plugin loads and draws its untrusted panel fore
 Name contains invalid characters
 ```
 
-then you are on a build from before that was fixed, and updating is the answer. The
+then you have found a known upstream bug and not a problem with your setup. The
 installer derived a directory name by splitting the source on `/` and `:`, so a drive
 letter's colon split a local path and the whole tail was refused — it never reached the
-clone, for *any* source spelling. That was an upstream installer bug and had nothing to
-do with this plugin, but it is this repository's install you would have watched fail,
-which is why it is written down. The error string is the anchor here deliberately: it is
-what you actually see, it is searchable, and unlike a commit id it cannot be rewritten
-by a merge.
+clone, for *any* source spelling. Nothing about this plugin caused it, but it is this
+repository's install you would have watched fail, which is why it is written down.
+
+**Where the fix is, as of writing:** on the same unmerged branch, in the commit
+*"name a cloned plugin's directory on Windows too"*, whose Windows CI is green. It is in
+**no release** — the newest is v1.8.6 — and it cannot be, because that branch carries the
+plugin API itself and has not landed. So updating to a release is not the remedy and never
+was: running this plugin already means building from the branch, and the remedy is to
+rebuild from it at or after that commit. If the branch has since merged, the first release
+after it is the answer instead.
+
+The error string is the anchor here deliberately: it is what you actually see, it is
+searchable, and unlike a commit id it cannot be rewritten by a merge.
 
 On that branch the kernel **is** the interface, so it runs as plain **`thurbox`**.
 There is no `thurbox2` binary.
