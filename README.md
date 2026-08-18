@@ -1,8 +1,9 @@
 # thurbox-doom
 
-DOOM as a thurbox pane. One Lua file: it places and frames a live PTY
-`surface`, decides which session it shows, and owns the key rules. The kernel
-fills the rect with cells.
+DOOM as a thurbox pane. The plugin is one Lua file: it places and frames a live
+PTY `surface`, decides which session it shows, and owns the key rules. The kernel
+fills the rect with cells. A freely-redistributable WAD ships alongside it, so
+only the DOOM port itself is left for you to build.
 
 The thing running DOOM is **not** this plugin. It is a native terminal DOOM port
 running as an ordinary thurbox **session**, parsed by the kernel's vt100 parser
@@ -55,6 +56,9 @@ before drawing anything at all.
 
 ## Prerequisites
 
+One of the two ships with this repository. You need to build the port; the WAD is
+already here.
+
 ### A terminal DOOM port
 
 **[`wojciech-graj/doom-ascii`](https://github.com/wojciech-graj/doom-ascii)** —
@@ -97,16 +101,43 @@ you like — if it works, I would like to know how.
 Other ports may work: the requirement is that the port paints with ordinary text
 and SGR colour, and reads its keys from stdin.
 
-### A WAD
+### A WAD — included
 
-**[Freedoom](https://freedoom.github.io/)**
-([`freedoom/freedoom`](https://github.com/freedoom/freedoom)) is the
-freely-distributable default — `freedoom1.wad`, `freedoom2.wad` or `freedm.wad`
-from its releases. I used `freedm.wad` from `v0.13.0` for the measurement above.
+**A WAD ships with this repository**, so you do not have to go and find one:
 
-A shareware `doom1.wad` or a commercial `doom.wad` / `doom2.wad` is your own
-affair. **This repository ships no WAD, and must not**; nor does it vendor a
-port or a binary.
+```text
+wad/freedoom1.wad        Freedoom: Phase 1, 0.13.0 — the single-player campaign
+wad/COPYING.txt          Freedoom's licence, reproduced as its terms require
+wad/CREDITS.txt          the contributor list COPYING.txt refers to
+wad/CREDITS-MUSIC.txt    the music credits
+```
+
+[Freedoom](https://freedoom.github.io/)
+([`freedoom/freedoom`](https://github.com/freedoom/freedoom)) is free game data
+built for the DOOM engine, under a **modified BSD licence** that permits binary
+redistribution as long as the notice, conditions and disclaimer travel with it —
+which is what `wad/COPYING.txt` is doing there. Phase 1 rather than FreeDM
+because FreeDM's maps are deathmatch arenas with no monster placement, so solo
+play in a pane would be a walk around an empty level.
+
+Provenance, so you need not take my word for it: extracted from
+`freedoom-0.13.0.zip`, whose SHA256 matched Freedoom's own published
+`freedoom-0.13.0-CHECKSUM` manifest. The file shipped here is
+
+```text
+sha256  7323bcc168c5a45ff10749b339960e98314740a734c30d4b9f3337001f9e703d  freedoom1.wad
+```
+
+I loaded this exact file with the port built above: it announces
+`Freedoom: Phase 1` and plays. It also prints a warning inherited from
+chocolate-doom — "You are playing using one of the Freedoom IWAD files, which
+might not work in this port" — and then proceeds anyway; that banner is expected,
+not a symptom.
+
+`freedoom2.wad` and `freedm.wad` from the same release work too if you would
+rather; point `-iwad` at whichever you like. A shareware `doom1.wad` or a
+commercial `doom.wad` / `doom2.wad` is your own affair, and **no port and no
+binary is vendored here** — you build that yourself, above.
 
 ## agents.toml
 
@@ -116,8 +147,13 @@ Register the port as an agent named `doom` in `~/.config/thurbox/agents.toml`:
 [[agents]]
 name = "doom"
 command = "/home/you/src/doom-ascii/_unix/game/doom-ascii"
-args = ["-iwad", "{home}/wads/freedm.wad"]
+args = ["-iwad", "/home/you/src/thurbox-doom/wad/freedoom1.wad"]
 ```
+
+Both paths are **absolute and yours to correct**: the first is wherever you built
+the port, the second is wherever you cloned this repository. The WAD stays in the
+clone — only `doom.lua` is copied into the interface directory — so keep the
+checkout around, or move the WAD somewhere of your own and name that instead.
 
 Three things about that snippet:
 
@@ -248,7 +284,8 @@ I have **not** tested this end to end, and two things temper the worry:
 
 Worth knowing before you blame the pane: over ~10 s of play at the default
 `-scaling 4`, `doom-ascii` emitted ~36.8 MB — about 700 frames of ~53 KB each,
-1.6 M colour spans — through the pty. thurbox's vt100 parser consumes all of it
+1.6 M colour spans — through the pty. (That capture used FreeDM; the vendored
+Phase 1 WAD behaves the same way, at ~21 MB over a shorter ~6 s run.) thurbox's vt100 parser consumes all of it
 while paints are capped at 60 fps, so the surface shows the latest state rather
 than every frame. I measured this outside thurbox, under `script`; I have **not**
 measured what it costs inside the interface. `-scaling` (larger number, smaller
@@ -288,10 +325,19 @@ it: the cells never pass through Lua at all.
 This plugin is MIT (see [`LICENSE`](LICENSE)) — Copyright (c) 2026 Thurbeen,
 matching `Thurbeen/thurbox`.
 
-Nothing else here is: **DOOM, the ports and the WADs carry their own licences, and
-this repository ships none of them.** `doom-ascii` and other doomgeneric-derived
-ports are **GPL-2.0**; Freedoom has its own terms; a shareware or commercial WAD is
-yours to obtain and abide by.
+The rest is not. **DOOM, the ports and the WADs carry their own licences.**
+
+- **`wad/freedoom1.wad` ships here** under Freedoom's **modified BSD licence**,
+  which permits binary redistribution provided the copyright notice, conditions and
+  disclaimer accompany it: `wad/COPYING.txt` and `wad/CREDITS.txt` are that
+  accompaniment, and removing them would break the terms. Freedoom is not
+  MIT-licensed and the `LICENSE` at the root does not cover it.
+- **No port and no binary is vendored.** `doom-ascii` and other
+  doomgeneric-derived ports are **GPL-2.0** — you build one yourself, from its own
+  repository, under its own licence. Shipping a GPL binary here would oblige this
+  repository to carry its corresponding source too, which is a deliberate
+  non-goal.
+- A shareware or commercial WAD is yours to obtain and abide by. None is here.
 
 ## Status
 
