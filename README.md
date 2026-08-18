@@ -52,6 +52,23 @@ session whose "agent" was DOOM, which is a game pretending to be a coding agent 
 borrow the one field of the session model that spawns a pty. The kernel now lends a
 plugin its own pane, so that is gone.
 
+## Finding it
+
+`center` is a **switch** slot, so this pane is an alternate behind the agent: it draws
+nothing until it is focused. Install it, launch thurbox and you will see the agent pane
+— which is why the plugin advertises itself three ways:
+
+- a **DOOM** entry in the action band along the bottom;
+- **`f7`** from anywhere (rebindable, and it appears in `F1` help);
+- the focus ring — `tab` / `shift+tab`, or `ctrl+h` / `ctrl+l`.
+
+Reported by someone who installed it cold and saw an empty-looking interface, which is
+the failure worth avoiding: "installed correctly and appears to have done nothing".
+
+If you would rather have DOOM beside the agent instead of taking turns with it, give
+the pane a slot of its own and place that slot in `layout.lua` — two lines, and
+`thurbox-cli plugin check` prints the one you need.
+
 ## What to point it at
 
 Any terminal DOOM that meets three conditions:
@@ -212,13 +229,15 @@ disagree with that row; most take a config file of their own.
 
 | Chord | Does |
 |---|---|
+| `f7` | show the DOOM pane (global) |
 | `ctrl+alt+r` | restart DOOM in this pane |
 | `ctrl+alt+x` | stop it and give up the pane |
 
-Both are plugin-scoped, so they fire only while this pane has focus, and both are
-rebindable (`~/.config/thurbox/ui.json`). They are `ctrl+alt+` chords because a
-declared chord is consumed before the surface ever sees it, and DOOM wants every bare
-key there is — the letters included, for cheats.
+`f7` is global, so it reaches a pane you cannot yet see; the other two are
+plugin-scoped and fire only while this pane has focus. All three are rebindable
+(`~/.config/thurbox/ui.json`). The pane-scoped two are `ctrl+alt+`
+chords because a declared chord is consumed before the surface ever sees it, and DOOM
+wants every bare key there is — the letters included, for cheats.
 
 ### Held keys latch, and that is a kernel limitation
 

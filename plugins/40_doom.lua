@@ -69,7 +69,7 @@ local function payload(name)
   return (dir:gsub("[/\\]+$", "")) .. "/" .. CLONE_DIR .. "/" .. name
 end
 
-local RESTART, RELEASE = "doom.restart", "doom.release"
+local OPEN, RESTART, RELEASE = "doom.open", "doom.restart", "doom.release"
 
 -- --- settings ---------------------------------------------------------------
 --
@@ -356,7 +356,29 @@ return {
   input = "session",
   capabilities = { "program" },
 
+  -- The action band advertises this pane, which is the only way anyone finds it.
+  --
+  -- `center` is a SWITCH slot, so this pane is an alternate behind the agent: it
+  -- draws nothing until it is focused, and a fresh install therefore looks like an
+  -- install that did nothing. The agent pane's own border strip cannot help — it
+  -- hardcodes its two views and is a file the user owns — but the band is kernel
+  -- chrome and takes a declared entry. Low priority: a game should be the first
+  -- thing dropped when the band runs out of width.
+  pills = {
+    { action = OPEN, label = "DOOM", priority = 10 },
+  },
+
   keys = {
+    -- Global, so it works from wherever the reader is standing rather than only
+    -- from a pane they cannot see yet. An F-key rather than a chord because a
+    -- focused terminal keeps bare `ctrl+<letter>` for the program in it.
+    {
+      key = "f7",
+      action = OPEN,
+      desc = "show the DOOM pane",
+      scope = "global",
+      group = "DOOM",
+    },
     -- Plugin-scoped, so they fire only while this pane has focus. `ctrl+alt+`
     -- because a declared chord is consumed before the surface sees it, and DOOM
     -- wants every bare key there is — including the letters, for cheats.
@@ -442,6 +464,11 @@ return {
   end,
 
   on_action = function(action)
+    if action == OPEN then
+      -- In a switch slot, focusing IS what brings the view forward.
+      command("focus", { text = NAME })
+      return true
+    end
     if action == RELEASE then
       -- Stopped on purpose rather than left running unseen. The flag is what stops
       -- `render` asking for it straight back.
