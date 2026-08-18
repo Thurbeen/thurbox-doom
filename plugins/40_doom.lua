@@ -321,10 +321,23 @@ local function needs_program(ctx)
     children[#children + 1] = path_line(wad, width)
     children[#children + 1] = blank()
   end
-  children[#children + 1] = line({
-    { text = "  Then trust it: settings → ] → this file → ", style = { fg = theme.muted } },
-    { text = "t", style = { fg = theme.hint, bold = true } },
-  })
+  -- What is still missing, which is not the same question as what this panel is for.
+  -- Naming a program and granting the capability are two prerequisites and either can
+  -- be done first, so telling a reader who has already trusted this file to trust it
+  -- reads as the pane not having noticed — which is exactly what it looked like to the
+  -- person who reported it.
+  if granted() then
+    children[#children + 1] = line({
+      { text = "  The ", style = { fg = theme.muted } },
+      { text = "program", style = { fg = theme.accent } },
+      { text = " capability is granted, so naming one is all that is left.", style = { fg = theme.muted } },
+    })
+  else
+    children[#children + 1] = line({
+      { text = "  Then trust it: settings → ] → this file → ", style = { fg = theme.muted } },
+      { text = "t", style = { fg = theme.hint, bold = true } },
+    })
+  end
   children[#children + 1] = { type = "text", fill = 1, text = "" }
   return panel(ctx, children)
 end
