@@ -27,6 +27,14 @@ It needs three things from that branch in particular: the **program-pane capabil
 inside a clone — `4c15f5b`. On an older build it loads and draws its untrusted panel
 forever.
 
+**On Windows you also need `4b5746b` or later.** Before it, *every* repository install
+failed on Windows: the installer derived a directory name by splitting the source on `/`
+and `:`, so a drive letter's colon split a local path and the whole tail was refused as
+"Name contains invalid characters" — it never reached the clone. That was an upstream
+bug rather than anything about this plugin, and it is fixed; but a Windows user on an
+earlier build will see the install fail and reasonably blame this repository, so it is
+written down here.
+
 On that branch the kernel **is** the interface, so it runs as plain **`thurbox`**.
 There is no `thurbox2` binary.
 
