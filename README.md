@@ -172,11 +172,66 @@ pane will not find it.
 
 ## Install
 
-Copy the file into your plugin directory:
+The v2 branch grew a **pane package manager** (`plugins.toml` + `plugins.lock`,
+and `thurbox-cli plugin install|sync|update|remove|available`), and this
+repository is a package: `plugin.toml` at its root names the pane and where it
+lands.
+
+From a clone:
 
 ```bash
-cp doom.lua ~/.config/thurbox/ui/plugins/
+git clone https://github.com/Thurbeen/thurbox-doom ~/src/thurbox-doom
+thurbox-cli plugin install ~/src/thurbox-doom
 ```
+
+Or straight from GitHub's raw host, no clone:
+
+```bash
+thurbox-cli plugin install https://raw.githubusercontent.com/Thurbeen/thurbox-doom/main
+```
+
+Either way the pane lands at `plugins/40_doom.lua` under your interface directory
+and the entry is written into `plugins.toml` beside it:
+
+```toml
+[[plugin]]
+src  = "https://raw.githubusercontent.com/Thurbeen/thurbox-doom/main"
+file = "plugins/40_doom.lua"
+```
+
+`--as plugins/NN_doom.lua` puts it somewhere else — the number is load order.
+After hand-editing that spec, `thurbox-cli plugin sync` converges the directory
+and its exit status says whether it worked; `plugins.lock` records what each entry
+resolved to and the digest of every file delivered, so committing both reproduces
+the same interface elsewhere. An edit you make to an installed file is preserved
+and reported as `kept`, and deleting one is remembered rather than undone.
+
+Four things worth knowing before you reach for it:
+
+- **The WAD is not installed by any of this.** A package may deliver **Lua only**
+  — every declared destination must end in `.lua` — so `plugin install` brings
+  `doom.lua` and nothing else. Keep the clone (or move `wad/freedoom1.wad`
+  somewhere of your own) and name it by absolute path in `agents.toml`. Installing
+  from the raw URL means you have no WAD yet; clone or download one.
+- **`doom` is not a bare name you can install.** A bare `src` resolves to
+  `ui-plugins/<name>` *inside the thurbox repository* at your binary's release
+  tag. This pane lives here, so it is a URL or a path.
+- **A pin only means something for a bare name.** `src` here is a URL, so `pin` is
+  recorded and otherwise ignored — pin the git ref **in the URL** (a tag or commit
+  sha in place of `main`) if you want the entry to stay put.
+- **Installing grants nothing.** That matters less here than for most panes: this
+  one declares no `capabilities`, so there is nothing to trust. The Interface tab
+  will show it as `from <src>` rather than `yours`, which is the useful half —
+  where a file came from.
+
+By hand still works, and the manager is a convenience rather than a gate:
+
+```bash
+cp doom.lua ~/.config/thurbox/ui/plugins/40_doom.lua
+```
+
+A file you copied is `yours` in the inventory: nothing will update it, and nothing
+will take it back.
 
 `~/.config/thurbox/ui/` is the interface directory (`docs/CONFIG.md`), and
 `plugins/*.lua` is one file per pane. The directory is watched, so the pane
@@ -185,16 +240,19 @@ path: `THURBOX_UI_DIR` if it is set, and a **dev build** (version `0.0.0-dev`),
 which reads `~/.config/thurbox-dev/ui` instead so a checkout cannot touch your
 installed setup.
 
-The pane declares `slot = "center"`, which the stock `layout.lua` already places —
-so there is no `layout.lua` edit to make. The centre is a `switch` slot: the agent
-pane and this one take turns, and `tab` / `shift+tab` (or a click) brings this one
-forward.
+The pane declares `slot = "center"`, which the stock `layout.lua` always places —
+so there is no `layout.lua` edit to make, and nothing here writes your arrangement
+anyway. This matters more than it did: `thurbox-cli plugin check` now **fails** a
+pane that loads but whose slot no arrangement places, printing the `layout.lua`
+line to add. Reading `layout.lua`, `center` is placed at every width — it is the
+one slot never dropped — so this pane should pass that check. I could not run it
+(see below).
 
-On a v2 build `thurbox-cli plugin dir | new | check | list` answer "which
-directory?" and "did it load?" without starting the interface. They are **not**
-available on the `thurbox-cli` I have here (`0.0.0-dev`, which reports
-`unrecognized subcommand 'plugin'`), so the copy above is the instruction to
-follow; treat the `plugin` subcommands as a convenience on a build that has them.
+The `plugin` subcommands are **not** available on the `thurbox-cli` I have here
+(`0.0.0-dev`, which reports `unrecognized subcommand 'plugin'`), so none of the
+commands above were executed — they are transcribed from the branch's
+`docs/PLUGINS.md`, `src/kernel/packages.rs` and `src/session/plugin_spec.rs`. The
+`cp` is the one instruction I can vouch for from this machine.
 
 ## Settings
 
@@ -341,7 +399,13 @@ The rest is not. **DOOM, the ports and the WADs carry their own licences.**
 
 ## Status
 
-Written against a pinned copy of the v2 branch and checked with `luac -p`, `selene`
+The plugin was written against a pinned copy of the v2 branch at `077004d`; the
+install instructions above were rewritten against its current head, `7f814f5`
+("feat(ui): give panes a package manager, and make an unplaced one fail loudly"),
+read from GitHub. Nothing the package manager does was exercised here — see the end
+of the Install section.
+
+Checked with `luac -p`, `selene`
 against the plugin sandbox definition (`thurbox.yml`, which declares the VM's real
 stdlib and marks what is withheld), and `stylua`. I also ran it under a stub
 harness — the kernel's globals faked, `lib/theme.lua` and `lib/widgets.lua` the
