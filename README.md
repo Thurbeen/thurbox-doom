@@ -320,26 +320,50 @@ plugin-scoped and fire only while this pane has focus. All three are rebindable
 chords because a declared chord is consumed before the surface ever sees it, and DOOM
 wants every bare key there is — the letters included, for cheats.
 
-### Held keys, and why this engine handles them
+### Held keys, the repeat delay, and the one number that matters
 
-thurbox **cannot deliver key-release events**, and that is a kernel limitation with
-two independent causes, both confirmed upstream: its terminal layer asks the outer
-terminal for `DISAMBIGUATE_ESCAPE_CODES` and never `REPORT_EVENT_TYPES` — the Kitty
-flag that makes releases reported at all — and its event loop matches
-`KeyEventKind::Press`, so a release would be dropped even if one arrived. It is
-recorded upstream as **D12**, deliberately not fixed: forwarding a release needs an
-encoding the key path does not have, and getting it wrong would double keystrokes in
-every agent pane, which is worse than a latched key in a game.
+thurbox **cannot deliver key-release events** — a kernel limitation with two causes, both
+confirmed upstream: the terminal layer asks for `DISAMBIGUATE_ESCAPE_CODES` and never
+`REPORT_EVENT_TYPES`, and the event loop matches `KeyEventKind::Press`. It is recorded there
+as **D12**. So "held" has to be inferred from auto-repeat, and that inference has a trap in
+it worth understanding, because you will feel it before you read this.
 
-A port that waits for a release therefore walks you into a wall. **The shipped engine
-does not wait.** A key is released once it has been quiet for `-release <ms>`
-(default 90), because auto-repeat keeps a held key arriving — so holding a direction
-moves you and letting go stops you. Tune it by adding `-release 60` to `doom.args` if
-your terminal repeats slowly or quickly.
+Two different silences mean opposite things:
 
-If you point `doom.program` at some other DOOM, this is the property to check first.
-Earlier revisions of this README suggested `set -g extended-keys on` in `~/.tmux.conf`:
-**that was wrong** and is gone — tmux is not the layer dropping them.
+```text
+repeat delay     500-660 ms   before the FIRST repeat  (GNOME 500, KDE 600, X11 660)
+repeat interval    25-40 ms   between repeats after it
+```
+
+A release window shorter than the delay drops a held key half a second into every press —
+move, stall, move — which reads as lag and is not. A window longer than the delay makes a
+*tap* carry you for its whole length. One number cannot serve both, so the engine uses two:
+
+- **before any repeat is seen for a key**, the window is `-release` (default **700 ms**,
+  which clears every common delay above);
+- **once repeats arrive**, their interval is measured and the window collapses to twice it
+  (~100 ms), so letting go stops you promptly.
+
+The cost is one long first tap per key per session — after that the rate is known and taps
+release in ~100 ms too. `engine/src/release_test.c` asserts all of it against a fake clock
+(`cd engine/src && make test`), including the case that made this necessary: a 600 ms delay
+under a 300 ms window releases the key at 301 ms.
+
+**If holding still feels wrong**, the honest fix is fewer milliseconds of guessing: shorten
+your desktop's repeat delay, which helps every terminal program you use.
+
+```bash
+# KDE
+kwriteconfig6 --file kcminputrc --group Keyboard --key RepeatDelay 200 && qdbus org.kde.KWin /KWin reconfigure
+# GNOME
+gsettings set org.gnome.desktop.peripherals.keyboard delay 200
+# X11
+xset r rate 200 30
+```
+
+With a 200 ms delay you can also drop `-release` to `250` in `doom.args` and stopping gets
+sharper still. And if you point `program` at some other DOOM, ask whether it waits for real
+releases: one that does will latch every key here, and no setting fixes that.
 
 ### Retracted: `tab` works
 

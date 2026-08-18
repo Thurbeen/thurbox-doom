@@ -27,6 +27,17 @@ which inside a terminal pane is a dialog nobody can see, announced by GTK warnin
 printed over the game. `I_Error`'s message still goes to stderr, where the pane shows
 it. Everything else in `src/` is upstream's, byte for byte.
 
+## Testing the key timing
+
+```bash
+cd engine/src && make test
+```
+
+Compiles `doomgeneric_thurbox.c` itself against a fake clock and asserts the release
+behaviour — that a held key survives a stock repeat delay, that the window collapses once
+the repeat rate is known, that a tap does not stick, and that `-release` still overrides.
+Seconds, and no doomgeneric objects needed.
+
 ## Rebuilding it
 
 ```bash
@@ -37,7 +48,7 @@ Needs a C compiler and `make`; nothing else. Built here with
 `cc (GCC) 16.2.1 20260810` and `-O2 -static`.
 
 ```text
-sha256  eef61e89a62901c1d3642a38878ebc4ad9e0676eb3d4228651e494a2591423c2  bin/linux-x86_64/doom
+sha256  757c51b1dee12a6fb9ed87cf8d8dc21edcebc8f1524109370d683067ab6801ff  bin/linux-x86_64/doom
 sha256  81658aba7d8a4adf9f48771488200f633110d47471448451e3dfd2966ab72f4e  src/doomgeneric_thurbox.c
 ```
 

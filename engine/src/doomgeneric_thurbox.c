@@ -18,13 +18,19 @@
 //     colours changed are emitted, in runs, so a menu costs almost nothing and a
 //     firefight costs what it has to.
 //
-//   * KEY RELEASE BY TIMING. thurbox cannot deliver key-release events: its
-//     terminal layer asks for `DISAMBIGUATE_ESCAPE_CODES` and never
-//     `REPORT_EVENT_TYPES`, and its event loop matches on press. A port that
-//     waits for a release therefore latches every held key and walks you into a
-//     wall. So a key is considered released once it has been quiet for
-//     `-release` milliseconds, which is what terminal auto-repeat gives us:
-//     while you hold it, presses keep arriving.
+//   * KEY RELEASE BY TIMING, ADAPTIVELY. thurbox cannot deliver key-release
+//     events: its terminal layer asks for `DISAMBIGUATE_ESCAPE_CODES` and never
+//     `REPORT_EVENT_TYPES`, and its event loop matches on press. A port that waits
+//     for a release therefore latches every held key. So "held" is inferred from
+//     auto-repeat, and the window has to straddle two different silences: the
+//     repeat DELAY before the first repeat (long, ~600 ms on a stock KDE or GNOME
+//     desktop) and the repeat INTERVAL after it (short, ~25-40 ms). One fixed
+//     number cannot serve both — 90 ms lost every held key for half a second, and
+//     600 ms would make a tap carry you across a room. So the window starts at
+//     `-release` (300 ms) and collapses to twice the measured interval as soon as
+//     repeats arrive.
+//
+//     None of this would exist if the kernel asked for `REPORT_EVENT_TYPES`.
 //
 //   * NEAREST-NEIGHBOUR SCALING to the terminal's size, recomputed on SIGWINCH,
 //     because the pane is resized by the kernel whenever the layout changes.
@@ -47,7 +53,23 @@
 #define MAX_COLS 512
 #define MAX_ROWS 256
 #define EVENT_QUEUE 64
-#define DEFAULT_RELEASE_MS 90
+// How long a lone press keeps a key down, before any auto-repeat has been seen for
+// that key.
+//
+// It has to outlast the terminal's REPEAT DELAY, or a held key falls out of "down"
+// before the first repeat arrives — 90 ms against a 600 ms delay meant half a second
+// of nothing every time you held a direction, which is the bug this replaced. 700 ms
+// clears the common defaults: 500 on GNOME, 600 on KDE, 660 on X11.
+//
+// The obvious objection is that a TAP then carries you for 700 ms, and it does —
+// ONCE per key per session. After the first time a key repeats, its interval is known
+// and the window collapses to twice that (~100 ms), for taps as much as for holds. So
+// the cost is one long first step, and the alternative was not being able to walk.
+#define DEFAULT_RELEASE_MS 700
+// A press this soon after the previous one is auto-repeat rather than a new tap.
+#define REPEAT_MAX_GAP_MS 250
+// The floor once the repeat rate is known: stopping should feel immediate.
+#define MIN_RELEASE_MS 60
 
 struct cell {
 	unsigned char fr, fg, fb; // top pixel
@@ -81,8 +103,12 @@ static int queue_head = 0, queue_tail = 0;
 // Last time each DOOM key was seen pressed, and whether we have told DOOM it is
 // down. The release is synthesised from these; see the note at the top.
 static uint32_t key_seen[256];
+// The auto-repeat interval measured for this key, or 0 while unknown. Learned rather
+// than assumed: the rate is the user's setting, and once it is known the release
+// window can be tight instead of conservative.
+static uint32_t key_gap[256];
 static unsigned char key_down[256];
-static uint32_t release_ms = DEFAULT_RELEASE_MS;
+static uint32_t hold_ms = DEFAULT_RELEASE_MS;
 
 static void on_winch(int signum)
 {
@@ -302,13 +328,43 @@ static void push(int pressed, unsigned char key)
 }
 
 // A press, recorded so its release can be synthesised later.
+//
+// While a key is already down, the gap since its last press IS the terminal's
+// auto-repeat interval, so it is worth learning: the shortest gap seen wins, since a
+// scheduling hiccup can stretch one but nothing makes one shorter than the rate.
 static void press(unsigned char key)
 {
-	key_seen[key] = DG_GetTicksMs();
+	uint32_t now = DG_GetTicksMs();
+	if (key_down[key]) {
+		uint32_t gap = now - key_seen[key];
+		if (gap > 0 && gap <= REPEAT_MAX_GAP_MS && (key_gap[key] == 0 || gap < key_gap[key]))
+			key_gap[key] = gap;
+	}
+	key_seen[key] = now;
 	if (!key_down[key]) {
 		key_down[key] = 1;
 		push(1, key);
 	}
+}
+
+// How long this key may stay down without another press.
+//
+// Two regimes, because the two silences mean different things. Before any repeat has
+// arrived the silence might be the repeat DELAY — long, and the user's setting — so
+// the window is `hold_ms` and a held key survives it. Once repeats are flowing, a
+// silence longer than a couple of intervals can only mean the key came up, so the
+// window collapses to that and stopping is immediate.
+static uint32_t window_for(unsigned char key)
+{
+	uint32_t window;
+	if (key_gap[key] == 0)
+		return hold_ms;
+	window = key_gap[key] * 2 + 20;
+	if (window < MIN_RELEASE_MS)
+		window = MIN_RELEASE_MS;
+	if (window > hold_ms)
+		window = hold_ms;
+	return window;
 }
 
 // Map one byte, or an escape sequence already recognised by the caller.
@@ -454,7 +510,7 @@ static void expire_keys(void)
 	for (int key = 0; key < 256; key++) {
 		if (!key_down[key])
 			continue;
-		if (now - key_seen[key] < release_ms)
+		if (now - key_seen[key] < window_for((unsigned char)key))
 			continue;
 		key_down[key] = 0;
 		push(0, (unsigned char)key);
@@ -509,10 +565,14 @@ int main(int argc, char **argv)
 	// Our own arguments are read before doomgeneric sees them; it ignores what
 	// it does not know, so they are simply passed through.
 	for (int i = 1; i < argc; i++) {
+		// `-release <ms>`: how long a lone press holds a key down. Raise it above
+		// your terminal's repeat delay if holding a direction still stutters; lower
+		// it if a tap carries you too far. Once repeats are seen the window adapts
+		// down from here on its own.
 		if (strcmp(argv[i], "-release") == 0 && i + 1 < argc) {
 			long ms = strtol(argv[i + 1], NULL, 10);
-			if (ms >= 0 && ms < 5000)
-				release_ms = (uint32_t)ms;
+			if (ms >= MIN_RELEASE_MS && ms < 5000)
+				hold_ms = (uint32_t)ms;
 		}
 	}
 

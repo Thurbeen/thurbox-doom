@@ -18,7 +18,7 @@
 # until it is set. See the README.
 name = "doom"
 description = "DOOM in a pane: a program surface, a built engine and a WAD"
-version = "v0.6.0"
+version = "v0.7.0"
 requires_thurbox = ">=2.0"
 
 pane = { source = "plugins/40_doom.lua", path = "plugins/40_doom.lua" }

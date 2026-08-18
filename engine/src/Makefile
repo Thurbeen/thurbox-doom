@@ -25,5 +25,16 @@ $(OBJDIR)/%.o: %.c | $(OBJDIR)
 $(OBJDIR):
 	mkdir -p $(OBJDIR)
 
+# The frontend's key timing, against a fake clock. It compiles the shipped
+# `doomgeneric_thurbox.c` itself rather than a copy, so what it asserts is what runs.
+# Seconds to build, no doomgeneric objects needed.
+test: release_test
+	./release_test
+
+release_test: release_test.c doomgeneric_thurbox.c
+	$(CC) $(CFLAGS) -I. -o $@ release_test.c
+
 clean:
-	rm -rf $(OBJDIR) $(OUTPUT)
+	rm -rf $(OBJDIR) $(OUTPUT) release_test
+
+.PHONY: test clean
