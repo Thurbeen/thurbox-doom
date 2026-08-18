@@ -22,18 +22,32 @@ plugin; which DOOM to run is one setting, and yours to choose.
 `main` has no `ui/` directory and no plugin API, so on a released thurbox this file is
 inert.
 
-It needs three things from that branch in particular: the **program-pane capability**
-(`953e177`), **install-by-clone** (`e6e1d532`), and — for the manifest to name the pane
-inside a clone — `4c15f5b`. On an older build it loads and draws its untrusted panel
-forever.
+It needs three things from that branch in particular, each named by its commit title
+rather than a sha — that branch is rebased when it merges, so any sha quoted here would
+stop existing:
 
-**On Windows you also need `4b5746b` or later.** Before it, *every* repository install
-failed on Windows: the installer derived a directory name by splitting the source on `/`
-and `:`, so a drive letter's colon split a local path and the whole tail was refused as
-"Name contains invalid characters" — it never reached the clone. That was an upstream
-bug rather than anything about this plugin, and it is fixed; but a Windows user on an
-earlier build will see the install fail and reasonably blame this repository, so it is
-written down here.
+- **"let a plugin run an interactive program in a pane it owns"** — the `program`
+  capability this pane is built on;
+- **"install a plugin by cloning its repository, payload and all"** — how the WAD gets
+  to you;
+- the fix that lets a **`plugin.toml` name the pane inside a clone**.
+
+On a build older than those, the plugin loads and draws its untrusted panel forever.
+
+**If a repository install fails on Windows**, complaining that
+
+```text
+Name contains invalid characters
+```
+
+then you are on a build from before that was fixed, and updating is the answer. The
+installer derived a directory name by splitting the source on `/` and `:`, so a drive
+letter's colon split a local path and the whole tail was refused — it never reached the
+clone, for *any* source spelling. That was an upstream installer bug and had nothing to
+do with this plugin, but it is this repository's install you would have watched fail,
+which is why it is written down. The error string is the anchor here deliberately: it is
+what you actually see, it is searchable, and unlike a commit id it cannot be rewritten
+by a merge.
 
 On that branch the kernel **is** the interface, so it runs as plain **`thurbox`**.
 There is no `thurbox2` binary.
@@ -284,8 +298,8 @@ Earlier versions said `tab` was reserved by the kernel for focus, so DOOM's auto
 unreachable. That was wrong. The reserved set is `ctrl+q`, `f10`, `ctrl+h`, `ctrl+l`
 and `f12`; `tab` is forwarded to the focused pane on purpose, because every coding
 agent needs it for completion. **The automap works.** The kernel's own `F1` help and
-`docs/PLUGINS.md` claimed otherwise; both were fixed upstream in `f1c0b85` after this
-plugin reported it.
+`docs/PLUGINS.md` claimed otherwise; both were fixed upstream — in the commit "stop
+claiming tab moves focus, because it does not" — after this plugin reported it.
 
 ## What this deliberately is not
 
@@ -321,14 +335,16 @@ and a shareware or commercial WAD likewise.
 
 ## Status
 
-Written against branch `thurbox-v2-ui-approach` at `4c15f5b`, reading
+Written against branch `thurbox-v2-ui-approach` — at the point where install-by-clone,
+the `program` capability and manifest-named panes had all landed — reading
 `docs/PLUGINS.md`, `ui/AGENTS.md`, `src/kernel/command.rs`, `src/kernel/convert.rs`,
 `src/kernel/terminal.rs`, `src/kernel/host.rs`, `src/session/plugin_spec.rs`,
 `src/kernel/packages.rs` and `thurbox.yml`.
 
-Gates: `luac -p`, `selene` against **that branch's** `thurbox.yml` — where
-`thurbox.granted` and `thurbox.platform` are declared, so an older copy rejects this
-file — and `stylua --check` with the pinned `.stylua.toml`. A stub harness (kernel
+Gates: `luac -p`, `selene` against the `thurbox.yml` **from the branch you build
+against** — that file is the sandbox definition, and it is where `thurbox.granted` and
+`thurbox.platform` are declared, so a copy from before them rejects this file — and
+`stylua --check` with the pinned `.stylua.toml`. A stub harness (kernel
 globals faked, `lib/theme.lua`, `lib/widgets.lua` and `lib/settings.lua` the real
 files) exercises the unconfigured, untrusted, running and released states, the
 every-frame ask, argument assembly including a WAD path with a space staying one
