@@ -102,6 +102,12 @@ nothing until it is focused. Install it, launch thurbox and you will see the age
 - the focus ring — `tab` / `shift+tab`, or `ctrl+h` / `ctrl+l` — if you would rather
   walk.
 
+**`Esc` is not the way out while the game is running**, and that is deliberate on both
+sides: the kernel treats a keystroke as consumed when it actually reaches a program, so a
+live DOOM takes `Esc` for its own menu and focus stays put. On the panels above — where
+there is nothing behind the pane — `Esc` finds no target and leaves, which is the kernel's
+normal "dismiss this pane". So: `Esc` for DOOM's menu, `f7` to leave.
+
 Reported by someone who installed it cold and saw an empty-looking interface, which is
 the failure worth avoiding: "installed correctly and appears to have done nothing".
 
@@ -296,7 +302,7 @@ Everything the plugin does not claim goes to the program, because it declares
 | strafe | `,` `.` |
 | weapons | `1`–`7` |
 | automap | `tab` |
-| menu / back | `esc` |
+| menu | `esc` — DOOM's own; it does not leave the pane |
 
 Those are the shipped engine's, and they are DOOM's own where a terminal can express
 them plus substitutes where it cannot: nothing can see a bare `shift` or `ctrl` held
