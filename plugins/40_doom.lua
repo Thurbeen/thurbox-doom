@@ -131,6 +131,44 @@ end
 
 local OPEN, RESTART, RELEASE = "doom.open", "doom.restart", "doom.release"
 
+--- The slot this pane occupies, named once because the toggle below asks which other
+--- panes share it.
+local SLOT = "center"
+
+--- The occupant currently SHOWING in our slot, if it is not us.
+---
+--- `thurbox.plugins` is the interface's own inventory: one row per file, carrying the
+--- plugin's declared name, its slot, and whether it is `visible` — which is about
+--- drawing rather than focus, so this answers "who has the centre right now" even when
+--- focus is somewhere else entirely, like the session list.
+---
+--- Asked rather than hardcoded. Naming `agent` here would work today and be wrong
+--- tomorrow: which panes share a slot is the user's arrangement, and a pane that named
+--- a sibling would one day hand the slot to something that is not there.
+local function showing_in_slot()
+  for _, row in ipairs((thurbox and thurbox.plugins) or {}) do
+    if row.kind == "pane" and row.slot == SLOT and row.state == "visible" and row.name ~= NAME then
+      return row.name
+    end
+  end
+  return nil
+end
+
+--- Are WE the one drawing?
+---
+--- Asked separately rather than inferred from "no sibling is showing", because both can
+--- be false at once: below the two-column breakpoint, or with the slot unplaced, nothing
+--- in it draws. Inferring would then read "we must have the centre" and hand it away
+--- when the answer was "take it".
+local function we_are_showing()
+  for _, row in ipairs((thurbox and thurbox.plugins) or {}) do
+    if row.kind == "pane" and row.name == NAME then
+      return row.state == "visible"
+    end
+  end
+  return false
+end
+
 -- --- settings ---------------------------------------------------------------
 --
 -- These replace what used to be an `agents.toml` entry. Declared as data, so they
@@ -604,13 +642,31 @@ return {
 
   on_action = function(action)
     if action == OPEN then
-      -- In a switch slot, focusing IS what brings the view forward — and `toggle`
-      -- makes the same key the way back out, returning to whatever was focused
-      -- before. The kernel owns that memory (`focus_return`, which `Esc` also
-      -- reads); a plugin doing it by hand could only name a sibling to return to,
-      -- and the occupants of a slot are the user's to rearrange, not this file's to
-      -- assume.
-      command("focus", { text = NAME, toggle = true })
+      -- One key, two directions, and the direction turns on who has the SLOT rather
+      -- than on who has focus. That is v1's central-tab behaviour: the review view
+      -- swapped with the agent view, and pressing its key twice left you where the
+      -- centre started rather than wherever focus happened to have been.
+      --
+      -- `toggle = true` answers a different question — where FOCUS came from. Pressed
+      -- from the session list it returns you to the session list, which is not what a
+      -- central tab does. It stays below as the fallback for when nothing is
+      -- remembered.
+      if not we_are_showing() then
+        -- We do not have the slot, so this press is the way IN. Remember whoever does
+        -- have it, if anyone, so the next press can hand it straight back.
+        state.gave_way = showing_in_slot()
+        command("focus", { text = NAME })
+        return true
+      end
+      -- We have the centre: hand it back to whoever we took it from.
+      local back = state.gave_way
+      if back then
+        command("focus", { text = back })
+      else
+        -- Nothing remembered — after a reload, or if we were the first pane focused.
+        -- The kernel's own memory is the honest fallback.
+        command("focus", { text = NAME, toggle = true })
+      end
       return true
     end
     if action == RELEASE then

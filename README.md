@@ -97,8 +97,9 @@ nothing until it is focused. Install it, launch thurbox and you will see the age
 
 - a **DOOM** entry in the action band along the bottom;
 - **`f7`** from anywhere (rebindable, and it appears in `F1` help). **The same key takes
-  you back**: pressed while the pane has focus it returns to whatever you were in
-  before, so one key is both the way in and the way out;
+  you back**, and specifically to whichever pane had the centre before — normally the
+  agent. It behaves like v1's central tabs: press to show DOOM, press again to put the
+  agent back, wherever your focus happened to be when you started;
 - the focus ring — `tab` / `shift+tab`, or `ctrl+h` / `ctrl+l` — if you would rather
   walk.
 
@@ -310,7 +311,7 @@ down, so `r` runs and `f` fires. A `program` of your own will have its own map.
 
 | Chord | Does |
 |---|---|
-| `f7` | show the DOOM pane, or leave it if it already has focus (global) |
+| `f7` | show DOOM, or hand the centre back to the pane that had it (global) |
 | `ctrl+alt+r` | restart DOOM in this pane |
 | `ctrl+alt+x` | stop it and give up the pane |
 
