@@ -19,61 +19,21 @@ The binary is **linux-x86_64** only — the one target that could be built *and 
 where this was written. On any other machine the pane names it and points at
 `engine/src`, which is a `make` away, or at the `doom.program` setting.
 
----
+![DOOM running in thurbox, opened with F8 and played in its program pane](media/demo.gif)
 
-## Read this before anything else
+Validated with **[thurbox v2.35.2](https://github.com/Thurbeen/thurbox/releases/tag/v2.35.2)**
+on Linux x86_64. The released v2 interface supports cloned plugins, the
+`program` capability and manifest-named panes. The plugin asks for an interactive
+program grant because it passes your keys to the game.
 
-**This needs thurbox's v2 plugin kernel, which is not released.** It lives on branch
-`thurbox-v2-ui-approach`, open as
-**[PR #936](https://github.com/Thurbeen/thurbox/pull/936)** in `Thurbeen/thurbox`.
-`main` has no `ui/` directory and no plugin API, so on a released thurbox this file is
-inert.
-
-It needs three things from that branch in particular, each named by its commit title
-rather than a sha — that branch is rebased when it merges, so any sha quoted here would
-stop existing:
-
-- **"let a plugin run an interactive program in a pane it owns"** — the `program`
-  capability this pane is built on;
-- **"install a plugin by cloning its repository, payload and all"** — how the WAD gets
-  to you;
-- the fix that lets a **`plugin.toml` name the pane inside a clone**.
-
-On a build older than those, the plugin loads and draws its untrusted panel forever.
-
-**If a repository install fails on Windows**, complaining that
-
-```text
-Name contains invalid characters
-```
-
-then you have found a known upstream bug and not a problem with your setup. The
-installer derived a directory name by splitting the source on `/` and `:`, so a drive
-letter's colon split a local path and the whole tail was refused — it never reached the
-clone, for *any* source spelling. Nothing about this plugin caused it, but it is this
-repository's install you would have watched fail, which is why it is written down.
-
-**Where the fix is, as of writing:** on the same unmerged branch, in the commit
-*"name a cloned plugin's directory on Windows too"*, whose Windows CI is green. It is in
-**no release** — the newest is v1.8.6 — and it cannot be, because that branch carries the
-plugin API itself and has not landed. So updating to a release is not the remedy and never
-was: running this plugin already means building from the branch, and the remedy is to
-rebuild from it at or after that commit. If the branch has since merged, the first release
-after it is the answer instead.
-
-The error string is the anchor here deliberately: it is what you actually see, it is
-searchable, and unlike a commit id it cannot be rewritten by a merge.
-
-On that branch the kernel **is** the interface, so it runs as plain **`thurbox`**.
-There is no `thurbox2` binary.
-
-**The plugin API is explicitly unstable** (see the banner atop `docs/PLUGINS.md`), and
-**plugins are trusted code** — this one asks for a capability that holds a process open
-on your keystrokes.
+The bundled Pipelines pane uses `F7`, so DOOM opens with **`F8`**. Both bindings
+load without a collision in v2.35.2. The engine binary is built for Linux x86_64;
+other platforms need a compatible terminal engine configured in `doom.program`.
 
 ## What it does
 
-- **No DOOM named yet** → a panel asking for one, and showing the WAD it brought.
+- **No engine for this platform** → a panel showing the bundled WAD and how to
+  build or name a compatible engine.
 - **Named but not trusted** → what it would run, and how to grant the capability.
 - **Trusted** → it asks for its pane every frame and frames the surface, with a
   controls row underneath.
@@ -96,17 +56,16 @@ nothing until it is focused. Install it, launch thurbox and you will see the age
 — which is why the plugin advertises itself three ways:
 
 - a **DOOM** entry in the action band along the bottom;
-- **`f7`** from anywhere (rebindable, and it appears in `F1` help). **The same key takes
+- **`f8`** from anywhere (rebindable, and it appears in `F1` help). **The same key takes
   you back**: pressed while the pane has focus it returns to whatever you were in
   before, so one key is both the way in and the way out;
-- the focus ring — `tab` / `shift+tab`, or `ctrl+h` / `ctrl+l` — if you would rather
-  walk.
+- the focus ring — `ctrl+h` / `ctrl+l` — if you would rather walk.
 
 **`Esc` is not the way out while the game is running**, and that is deliberate on both
 sides: the kernel treats a keystroke as consumed when it actually reaches a program, so a
 live DOOM takes `Esc` for its own menu and focus stays put. On the panels above — where
 there is nothing behind the pane — `Esc` finds no target and leaves, which is the kernel's
-normal "dismiss this pane". So: `Esc` for DOOM's menu, `f7` to leave.
+normal "dismiss this pane". So: `Esc` for DOOM's menu, `f8` to leave.
 
 Reported by someone who installed it cold and saw an empty-looking interface, which is
 the failure worth avoiding: "installed correctly and appears to have done nothing".
@@ -214,9 +173,9 @@ order still comes from the `40_` prefix.
 > into the thurbox repository's own examples, where a smaller `doom` pane demonstrates
 > the capability.
 
-**What cloning means, plainly:** it puts this repository's files on your disk. Nothing
-is executed by installing — and nothing here is executable in any case, since the only
-payload is a WAD.
+**What cloning means, plainly:** it puts this repository's files on your disk,
+including the Linux engine binary and both WADs. Installing does not run the
+engine; granting the `program` capability lets the pane start it.
 
 `~/.config/thurbox/ui/` is the interface directory, watched, so the pane appears on
 save (120 ms debounce); `F10` forces a reload. `THURBOX_UI_DIR` overrides the path, and
@@ -267,12 +226,11 @@ Declared as data, so they appear in the settings modal and are stored in
 resolves to depends on the machine: the pane asks `thurbox.platform` and looks for the
 build this repository ships for that `os-arch`. It knows which ones were committed, so
 it never exec's a path it has no reason to believe in — on an unshipped platform it
-names the machine and offers the two ways forward. `wad` is simpler: one file ships, so
-its default **names that file**.
+names the machine and offers the two ways forward. The WAD default names the
+bundled shareware episode; Freedoom also ships in `wad/`.
 
-The pane shows those paths **in full**, wrapped rather than truncated, because a path
-you are meant to copy is no use with its filename cut off — a long interface directory
-was doing exactly that.
+The pane wraps those paths over up to three rows, then keeps both ends when a
+path is longer. That preserves the filename in a long interface directory.
 
 **Paths.** A relative `wad` resolves inside this plugin's clone
 (`<interface dir>/thurbox-doom/`), which is where its own files are. Everything else
@@ -310,11 +268,11 @@ down, so `r` runs and `f` fires. A `program` of your own will have its own map.
 
 | Chord | Does |
 |---|---|
-| `f7` | show the DOOM pane, or leave it if it already has focus (global) |
+| `f8` | show the DOOM pane, or leave it if it already has focus (global) |
 | `ctrl+alt+r` | restart DOOM in this pane |
 | `ctrl+alt+x` | stop it and give up the pane |
 
-`f7` is global, so it reaches a pane you cannot yet see; the other two are
+`f8` is global, so it reaches a pane you cannot yet see; the other two are
 plugin-scoped and fire only while this pane has focus. All three are rebindable
 (`~/.config/thurbox/ui.json`). The pane-scoped two are `ctrl+alt+`
 chords because a declared chord is consumed before the surface ever sees it, and DOOM
@@ -383,10 +341,9 @@ drawn cell by cell is thousands of styled runs against a conversion path whose h
 measured case is ~100 spans a pane (`docs/V2-KERNEL.md`). A program pane costs none of
 it: the cells never pass through Lua.
 
-Nor is it a package that ships an engine. An engine is a GPL binary — which would
-oblige this repository to carry its corresponding source — or a build tree with its own
-package manager, which does not belong under a watched interface directory. Shipping
-the data and naming the requirement is the honest division.
+The Linux engine binary ships beside its corresponding GPL source. Build output
+belongs outside the watched interface directory; copy only the finished binary
+into an isolated plugin copy when testing another build.
 
 ## Credits
 
@@ -414,26 +371,24 @@ accompany it — removing them would break them.
 So: MIT for the pane, GPL-2.0 for the engine, and for the data one open licence and one
 permission. A commercial WAD you supply yourself is your own affair.
 
-## Status
+## Demo and checks
 
-Written against branch `thurbox-v2-ui-approach` — at the point where install-by-clone,
-the `program` capability and manifest-named panes had all landed — reading
-`docs/PLUGINS.md`, `ui/AGENTS.md` and the kernel sources for the contract.
+`media/demo.gif` was recorded from the real v2.35.2 TUI and the bundled DOOM
+engine. `demo/record.sh` copies the installed interface into an isolated
+environment, grants only that copy, drives the pane with tmux, captures the
+terminal with asciinema, removes the engine's temporary startup path from the
+cast, then renders and scales the GIF with agg and ffmpeg. Recreate it with:
 
-Gates: `luac -p`, `selene` against the `thurbox.yml` **from the branch you build
-against** (the sandbox definition, where `thurbox.granted` and `thurbox.platform` are
-declared, so an older copy rejects this file), and `stylua --check` with the pinned
-`.stylua.toml`. A stub harness — kernel globals faked, `lib/theme.lua`,
-`lib/widgets.lua` and `lib/settings.lua` the real files — covers the shipped-engine and
-unshipped-platform states, untrusted, running and released, the every-frame ask, argv
-assembly (relative and absolute `program` and `wad`, a path with a space, a
-Windows-shaped `ui_dir`), the long-path wrapping, both chords, the pill, the automap
-hint, and every emitted node against the fields `convert.rs` accepts.
+```bash
+bash demo/record.sh
+```
 
-**The engine is measured, the pane is not.** The committed binary was built and run
-here: statically linked, 1.5 MB, playing the shipped WAD, emitting ~297k half-blocks
-with paired truecolor runs and zero graphics-protocol bytes at ~0.7 MB/s. The pane
-around it has been seen to render by the maintainer of the v2 branch, in their terminal,
-at an earlier commit — not by me, and not with this engine in place. Also unrun here:
-every `thurbox-cli plugin` command, because the installed CLI is `0.0.0-dev` and has no
-`plugin` subcommand.
+`bash tests/smoke.sh` uses the same isolated setup. It checks the current
+interface's key registry for a collision, opens DOOM with F8, and confirms that
+the engine has a live program window. The test failed before the F8 change:
+`f7 is claimed by both doom.open and pipelines.toggle`.
+
+To try the installed plugin yourself: install it with the command above, run
+`thurbox-cli plugin check`, grant `program` in the Interface settings tab,
+press **F8**, press **Enter** through DOOM's menus, move with the arrow keys,
+and press **F8** again to leave. The next F8 returns to the running game.
