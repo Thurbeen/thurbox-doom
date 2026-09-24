@@ -44,14 +44,12 @@ local PANE = "doom"
 ---
 --- `thurbox-cli plugin install git+<url>` clones a plugin that carries a payload,
 --- and the clone lands at `<interface dir>/<repository name>/` — so this is the
---- REPOSITORY's name, not the plugin's. What it carries is one thing:
+--- REPOSITORY's name, not the plugin's. It carries the pane, engine and WAD:
 ---
----     <interface dir>/thurbox-doom/wad/freedoom1.wad
+---     <interface dir>/thurbox-doom/engine/bin/linux-x86_64/doom
+---     <interface dir>/thurbox-doom/wad/doom1.wad
 ---
---- A WAD, and nothing else. No engine ships here and none is fetched: which DOOM to
---- run is the `program` setting, and until that is set this pane starts nothing.
---- Deliberate — an engine is a GPL binary or a build tree with its own package
---- manager, and neither belongs in a pane's repository.
+--- Other platforms can name a compatible engine with the `program` setting.
 local CLONE_DIR = "thurbox-doom"
 
 --- The WAD this repository ships and plays by default, as the `wad` setting's
@@ -350,9 +348,8 @@ end
 --- What to draw before a DOOM has been named.
 ---
 --- The first thing a reader sees after installing, and the only screen that has any
---- work for them: this repository ships game DATA and no engine, so the one thing it
---- cannot know is which DOOM you want. It shows the WAD it brought, since that is the
---- argument the program will be handed.
+--- work for them: the bundled engine only runs on linux-x86_64. It shows the WAD
+--- it brought, since that is the argument the program will be handed.
 local function needs_program(ctx)
   local width = math.max(0, (ctx.width or 0) - 6)
   local _, machine = shipped_engine()
@@ -509,7 +506,7 @@ return {
     -- from a pane they cannot see yet. An F-key rather than a chord because a
     -- focused terminal keeps bare `ctrl+<letter>` for the program in it.
     {
-      key = "f7",
+      key = "f8", -- F7 belongs to the bundled Pipelines pane in thurbox 2.35.2.
       action = OPEN,
       desc = "show the DOOM pane",
       scope = "global",
@@ -533,11 +530,10 @@ return {
   },
 
   settings = {
-    -- `program` has no default worth guessing, so the pane says so until it is set.
-    -- `wad` does: empty means the one this repository brought with it.
+    -- An empty `program` selects the bundled build for this platform.
     {
       id = "program",
-      desc = "The terminal DOOM to run. Required: this plugin ships a WAD, not an engine",
+      desc = "Terminal DOOM to run. Empty selects the bundled linux-x86_64 engine",
       default = "",
     },
     {

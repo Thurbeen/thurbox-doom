@@ -14,11 +14,11 @@
 # NOT `thurbox-cli plugin install doom` — a bare name resolves into the thurbox
 # repository's own examples, which is a different, smaller pane.
 #
-# No engine ships here. Which DOOM to run is the `program` setting; the pane says so
-# until it is set. See the README.
+# The linux-x86_64 engine and two WADs ship in this clone. Other platforms can
+# set `doom.program` to a compatible terminal engine; see the README.
 name = "doom"
 description = "DOOM in a pane: a program surface, a built engine and a WAD"
-version = "v0.7.0"
-requires_thurbox = ">=2.0"
+version = "v0.8.0"
+requires_thurbox = ">=2.35.2"
 
 pane = { source = "plugins/40_doom.lua", path = "plugins/40_doom.lua" }
