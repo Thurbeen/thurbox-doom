@@ -377,10 +377,12 @@ permission. A commercial WAD you supply yourself is your own affair.
 `media/demo.gif` was recorded from the real v2.35.3 TUI and the bundled DOOM
 engine. `demo/record.sh` copies the installed interface into an isolated
 environment, grants only that copy, drives the pane with tmux, captures the
-terminal at 200×56 cells with asciinema, starts the first level with the
-plugin's `args` setting, removes the engine's temporary startup path from the
-cast, then renders an 1818×1197 GIF at agg's native size with ffmpeg preserving
-its sharp cell edges.
+terminal at 200×56 cells with asciinema, and starts the first level with the
+plugin's `args` setting. It keeps DOOM focused throughout gameplay, removes
+the engine's temporary startup path from the cast, trims the initial pane
+repaint after the HUD appears, then renders an 1818×1197 GIF at agg's native
+size with ffmpeg preserving its sharp cell edges. `bash tests/demo_media.sh`
+decodes the delivered GIF and checks every frame for an empty gameplay viewport.
 Recreate it with:
 
 ```bash

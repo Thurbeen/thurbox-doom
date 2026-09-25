@@ -108,9 +108,9 @@ for _ in $(seq 1 80); do
       key Up 1
       key Up 1
       key f 1
-      key F5 2
-      key F5 2
       key Right 1
+      key Up 1
+      key f 1
       key C-q 1
       for _ in $(seq 1 30); do
         if [ -s "$RECORD_CAST" ]; then break; fi
