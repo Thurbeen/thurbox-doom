@@ -21,7 +21,7 @@ where this was written. On any other machine the pane names it and points at
 
 ![DOOM running in thurbox, opened with F8 and played in its program pane](media/demo.gif)
 
-Validated with **[thurbox v2.35.2](https://github.com/Thurbeen/thurbox/releases/tag/v2.35.2)**
+Validated with **[thurbox v2.35.3](https://github.com/Thurbeen/thurbox/releases/tag/v2.35.3)**
 on Linux x86_64. The released v2 interface supports cloned plugins, the
 `program` capability and manifest-named panes. The plugin asks for an interactive
 program grant because it passes your keys to the game.
@@ -373,11 +373,13 @@ permission. A commercial WAD you supply yourself is your own affair.
 
 ## Demo and checks
 
-`media/demo.gif` was recorded from the real v2.35.2 TUI and the bundled DOOM
+`media/demo.gif` was recorded from the real v2.35.3 TUI and the bundled DOOM
 engine. `demo/record.sh` copies the installed interface into an isolated
 environment, grants only that copy, drives the pane with tmux, captures the
-terminal with asciinema, removes the engine's temporary startup path from the
-cast, then renders and scales the GIF with agg and ffmpeg. Recreate it with:
+terminal at 116×34 cells with asciinema, starts the first level with the
+plugin's `args` setting, removes the engine's temporary startup path from the
+cast, then renders a 1024-pixel-wide GIF with agg and ffmpeg.
+Recreate it with:
 
 ```bash
 bash demo/record.sh

@@ -6,6 +6,8 @@ set -euo pipefail
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 CLI=${THURBOX_CLI:-thurbox-cli}
 TUI=${THURBOX_BIN:-thurbox}
+TUI_COLS=${TUI_COLS:-112}
+TUI_ROWS=${TUI_ROWS:-32}
 ROOT="$REPO/engine/src/build-thurbox"
 mkdir -p "$ROOT"
 S=$(mktemp -d "$ROOT/smoke.XXXXXX")
@@ -53,6 +55,7 @@ fi
 # Match the Interface tab's capability record, scoped to this disposable copy.
 python3 - "$S/ui/thurbox-doom/plugins/40_doom.lua" "$THURBOX_CONFIG_DIR/ui.json" <<'PY'
 import json
+import os
 import pathlib
 import sys
 
@@ -60,17 +63,20 @@ pane, config = map(pathlib.Path, sys.argv[1:])
 digest = 0xCBF29CE484222325
 for byte in pane.read_bytes():
     digest = ((digest ^ byte) * 0x100000001B3) & 0xFFFFFFFFFFFFFFFF
-config.write_text(json.dumps({"trusted": {str(pane): f"{digest:016x}"}}))
+overrides = {"trusted": {str(pane): f"{digest:016x}"}}
+if os.environ.get("RECORD_CAST"):
+    overrides["settings"] = {"doom.args": "-warp 1 1 -iwad"}
+config.write_text(json.dumps(overrides))
 PY
 sqlite3 "$THURBOX_DATA_DIR/thurbox.db" \
   "INSERT INTO metadata (key, value) VALUES ('v2_interface_acknowledged', '1') ON CONFLICT(key) DO UPDATE SET value = '1';"
 
 if [ -n "${RECORD_CAST:-}" ]; then
-  printf -v tui_command 'asciinema rec --overwrite --quiet --cols 112 --rows 32 --command %q %q' "$TUI" "$RECORD_CAST"
+  printf -v tui_command 'asciinema rec --overwrite --quiet --cols %q --rows %q --command %q %q' "$TUI_COLS" "$TUI_ROWS" "$TUI" "$RECORD_CAST"
 else
   tui_command="$TUI"
 fi
-tmux -S "$DRIVE_SOCKET" new-session -d -s smoke -x 112 -y 32 "$tui_command"
+tmux -S "$DRIVE_SOCKET" new-session -d -s smoke -x "$TUI_COLS" -y "$TUI_ROWS" "$tui_command"
 capture() { tmux -S "$DRIVE_SOCKET" capture-pane -p -t smoke; }
 for _ in $(seq 1 80); do
   if capture | grep -qF 'No sessions yet'; then break; fi
@@ -98,15 +104,13 @@ for _ in $(seq 1 80); do
     fi
     if [ -n "${RECORD_CAST:-}" ]; then
       key() { tmux -S "$DRIVE_SOCKET" send-keys -t smoke "$1"; sleep "$2"; }
-      key Enter 1
-      key Enter 1
-      key Enter 2
       key Up 1
       key Up 1
       key f 1
       key F8 2
       key F8 2
       key Right 1
+      key F8 1
       key C-q 1
       for _ in $(seq 1 30); do
         if [ -s "$RECORD_CAST" ]; then break; fi
