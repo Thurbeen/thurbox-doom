@@ -1,0 +1,38 @@
+name: Check
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Install gate dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.4 shellcheck tmux sqlite3 ffmpeg make gcc unzip
+
+          mkdir -p "$RUNNER_TEMP/tools"
+          curl -fsSL https://github.com/Thurbeen/thurbox/releases/download/v2.35.3/thurbox-v2.35.3-x86_64-unknown-linux-gnu.tar.gz -o "$RUNNER_TEMP/tools/thurbox.tar.gz"
+          echo "437b69a7ac2885bd36dd1f68858f9dd817c33c663970f9836f6cc3c7f0d340e9  $RUNNER_TEMP/tools/thurbox.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/tools/thurbox.tar.gz" -C "$RUNNER_TEMP/tools"
+
+          curl -fsSL https://github.com/JohnnyMorganz/StyLua/releases/download/v2.5.2/stylua-linux-x86_64.zip -o "$RUNNER_TEMP/tools/stylua.zip"
+          echo "bcb0d855e91f102f28a370e850f8566b3b44b79e6274d806ea5246837c0fd5ab  $RUNNER_TEMP/tools/stylua.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/tools/stylua.zip" -d "$RUNNER_TEMP/tools"
+          echo "$RUNNER_TEMP/tools" >> "$GITHUB_PATH"
+
+      - name: Check exact PR head
+        env:
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$PR_HEAD"
+          bash scripts/check.sh
