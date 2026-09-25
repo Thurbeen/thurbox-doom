@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Exercise the pane in an isolated copy of the interface shipped with the
-# installed thurbox. The bundled Pipelines pane owns F7 in current releases.
+# Exercise the pane in a fresh copy of the interface bundled with the
+# installed thurbox.
 set -euo pipefail
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
@@ -24,8 +24,6 @@ cleanup() {
   rm -rf "$SOCKET_ROOT"
 }
 trap cleanup EXIT
-BASE_UI=${THURBOX_BASE_UI:-$(THURBOX_DATA_DIR="$S/probe-data" "$CLI" plugin dir --text | head -1)}
-
 export HOME="$S" XDG_CONFIG_HOME="$S/config" XDG_DATA_HOME="$S/data"
 export XDG_CACHE_HOME="$S/cache" XDG_STATE_HOME="$S/state"
 export THURBOX_CONFIG_DIR="$S/config/thurbox" THURBOX_DATA_DIR="$S/data/thurbox"
@@ -33,9 +31,12 @@ export THURBOX_UI_DIR="$S/ui" TMUX_TMPDIR="$SOCKET_ROOT" TERM=xterm-256color
 export COLORTERM=truecolor
 unset NO_COLOR
 unset THURBOX_SOCKET THURBOX_SOCKET_FOR THURBOX_SESSION THURBOX_SESSION_ID
-mkdir -p "$THURBOX_CONFIG_DIR" "$THURBOX_DATA_DIR" "$S/ui/plugins" "$S/ui/thurbox-doom/plugins" "$S/ui/thurbox-doom/engine/bin/linux-x86_64" "$S/ui/thurbox-doom/wad"
-cp -a "$BASE_UI/lib" "$BASE_UI/layout.lua" "$BASE_UI/AGENTS.md" "$BASE_UI/README.md" "$S/ui/"
-cp -a "$BASE_UI/plugins/." "$S/ui/plugins/"
+mkdir -p "$THURBOX_CONFIG_DIR" "$THURBOX_DATA_DIR" "$S/ui" "$S/ui/thurbox-doom/plugins" "$S/ui/thurbox-doom/engine/bin/linux-x86_64" "$S/ui/thurbox-doom/wad"
+# Installing this local source bootstraps the release's bundled interface.
+# Move its flat copy aside; the fixture below loads the plugin as a clone.
+"$CLI" plugin install "$REPO" --text > "$S/install.txt"
+mv "$S/ui/plugins/40_doom.lua" "$S/bootstrapped-pane.lua"
+mv "$S/ui/plugins.lock" "$S/bootstrapped-plugins.lock"
 cp "$REPO/plugins/40_doom.lua" "$S/ui/thurbox-doom/plugins/40_doom.lua"
 cp "$REPO/plugin.toml" "$S/ui/thurbox-doom/plugin.toml"
 cp "$REPO/engine/bin/linux-x86_64/doom" "$S/ui/thurbox-doom/engine/bin/linux-x86_64/doom"
@@ -47,8 +48,8 @@ file = "thurbox-doom/plugins/40_doom.lua"
 TOML
 
 "$CLI" plugin check --text > "$S/check.txt"
-if grep -Ei 'f7.*doom\.open|doom\.open.*f7' "$S/check.txt"; then
-  echo 'DOOM conflicts with the bundled F7 binding' >&2
+if grep -Ei 'claimed by both.*doom\.open|doom\.open.*claimed by both' "$S/check.txt"; then
+  echo 'DOOM conflicts with a bundled global binding' >&2
   exit 1
 fi
 
@@ -83,7 +84,7 @@ for _ in $(seq 1 80); do
   sleep 0.2
 done
 capture | grep -qF 'No sessions yet' || { capture >&2; echo 'thurbox did not reach the main interface' >&2; exit 1; }
-tmux -S "$DRIVE_SOCKET" send-keys -t smoke F8
+tmux -S "$DRIVE_SOCKET" send-keys -t smoke F5
 for _ in $(seq 1 80); do
   if capture | grep -q '▸ DOOM'; then
     sleep 3
@@ -107,10 +108,9 @@ for _ in $(seq 1 80); do
       key Up 1
       key Up 1
       key f 1
-      key F8 2
-      key F8 2
+      key F5 2
+      key F5 2
       key Right 1
-      key F8 1
       key C-q 1
       for _ in $(seq 1 30); do
         if [ -s "$RECORD_CAST" ]; then break; fi
@@ -118,11 +118,11 @@ for _ in $(seq 1 80); do
       done
       [ -s "$RECORD_CAST" ] || { echo 'recording was not written' >&2; exit 1; }
     fi
-    echo 'DOOM focused through F8 in the current interface'
+    echo 'DOOM focused through F5 in the current interface'
     exit 0
   fi
   sleep 0.2
 done
 capture >&2
-echo 'F8 did not focus the DOOM pane' >&2
+echo 'F5 did not focus the DOOM pane' >&2
 exit 1

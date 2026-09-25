@@ -506,7 +506,7 @@ return {
     -- from a pane they cannot see yet. An F-key rather than a chord because a
     -- focused terminal keeps bare `ctrl+<letter>` for the program in it.
     {
-      key = "f8", -- F7 belongs to the bundled Pipelines pane in thurbox 2.35.2.
+      key = "f5", -- F8 and F9 are claimed; F12 is reserved by the kernel.
       action = OPEN,
       desc = "show the DOOM pane",
       scope = "global",

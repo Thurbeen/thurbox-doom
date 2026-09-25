@@ -19,15 +19,16 @@ The binary is **linux-x86_64** only — the one target that could be built *and 
 where this was written. On any other machine the pane names it and points at
 `engine/src`, which is a `make` away, or at the `doom.program` setting.
 
-![DOOM running in thurbox, opened with F8 and played in its program pane](media/demo.gif)
+![DOOM running in thurbox, opened with F5 and played in its program pane](media/demo.gif)
 
 Validated with **[thurbox v2.35.3](https://github.com/Thurbeen/thurbox/releases/tag/v2.35.3)**
 on Linux x86_64. The released v2 interface supports cloned plugins, the
 `program` capability and manifest-named panes. The plugin asks for an interactive
 program grant because it passes your keys to the game.
 
-The bundled Pipelines pane uses `F7`, so DOOM opens with **`F8`**. Both bindings
-load without a collision in v2.35.3. The engine binary is built for Linux x86_64;
+The released Shell and Sessions actions use `F8` and `F9`; `F12` is reserved by
+the kernel. DOOM opens with **`F5`**. The bindings load without a collision in
+v2.35.3. The engine binary is built for Linux x86_64;
 other platforms need a compatible terminal engine configured in `doom.program`.
 
 ## What it does
@@ -56,7 +57,7 @@ nothing until it is focused. Install it, launch thurbox and you will see the age
 — which is why the plugin advertises itself three ways:
 
 - a **DOOM** entry in the action band along the bottom;
-- **`f8`** from anywhere (rebindable, and it appears in `F1` help). **The same key takes
+- **`f5`** from anywhere (rebindable, and it appears in `F1` help). **The same key takes
   you back**: pressed while the pane has focus it returns to whatever you were in
   before, so one key is both the way in and the way out;
 - the focus ring — `ctrl+h` / `ctrl+l` — if you would rather walk.
@@ -65,7 +66,7 @@ nothing until it is focused. Install it, launch thurbox and you will see the age
 sides: the kernel treats a keystroke as consumed when it actually reaches a program, so a
 live DOOM takes `Esc` for its own menu and focus stays put. On the panels above — where
 there is nothing behind the pane — `Esc` finds no target and leaves, which is the kernel's
-normal "dismiss this pane". So: `Esc` for DOOM's menu, `f8` to leave.
+normal "dismiss this pane". So: `Esc` for DOOM's menu, `f5` to leave.
 
 Reported by someone who installed it cold and saw an empty-looking interface, which is
 the failure worth avoiding: "installed correctly and appears to have done nothing".
@@ -268,11 +269,11 @@ down, so `r` runs and `f` fires. A `program` of your own will have its own map.
 
 | Chord | Does |
 |---|---|
-| `f8` | show the DOOM pane, or leave it if it already has focus (global) |
+| `f5` | show the DOOM pane, or leave it if it already has focus (global) |
 | `ctrl+alt+r` | restart DOOM in this pane |
 | `ctrl+alt+x` | stop it and give up the pane |
 
-`f8` is global, so it reaches a pane you cannot yet see; the other two are
+`f5` is global, so it reaches a pane you cannot yet see; the other two are
 plugin-scoped and fire only while this pane has focus. All three are rebindable
 (`~/.config/thurbox/ui.json`). The pane-scoped two are `ctrl+alt+`
 chords because a declared chord is consumed before the surface ever sees it, and DOOM
@@ -386,11 +387,12 @@ bash demo/record.sh
 ```
 
 `bash tests/smoke.sh` uses the same isolated setup. It checks the current
-interface's key registry for a collision, opens DOOM with F8, and confirms that
-the engine has a live program window. The test failed before the F8 change:
-`f7 is claimed by both doom.open and pipelines.toggle`.
+interface's key registry for a collision, opens DOOM with F5, and confirms that
+the engine has a live program window. Before the F5 change, F8 collided with
+`shell.open` and F12 opened the kernel's performance overlay instead of DOOM.
 
 To try the installed plugin yourself: install it with the command above, run
 `thurbox-cli plugin check`, grant `program` in the Interface settings tab,
-press **F8**, press **Enter** through DOOM's menus, move with the arrow keys,
-and press **F8** again to leave. The next F8 returns to the running game.
+press **F5**, select New Game, an episode and a skill with **Enter**, move with
+the arrow keys, and press **F5** again to leave. The next F5 returns to the
+running game.
