@@ -18,7 +18,7 @@ jobs:
       - name: Install gate dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y lua5.4 shellcheck tmux sqlite3 ffmpeg make gcc unzip
+          sudo apt-get install -y lua5.4 tmux sqlite3 ffmpeg make gcc unzip
 
           mkdir -p "$RUNNER_TEMP/tools"
           curl -fsSL https://github.com/Thurbeen/thurbox/releases/download/v2.35.3/thurbox-v2.35.3-x86_64-unknown-linux-gnu.tar.gz -o "$RUNNER_TEMP/tools/thurbox.tar.gz"
@@ -28,6 +28,11 @@ jobs:
           curl -fsSL https://github.com/JohnnyMorganz/StyLua/releases/download/v2.5.2/stylua-linux-x86_64.zip -o "$RUNNER_TEMP/tools/stylua.zip"
           echo "bcb0d855e91f102f28a370e850f8566b3b44b79e6274d806ea5246837c0fd5ab  $RUNNER_TEMP/tools/stylua.zip" | sha256sum -c -
           unzip -q "$RUNNER_TEMP/tools/stylua.zip" -d "$RUNNER_TEMP/tools"
+
+          curl -fsSL https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz -o "$RUNNER_TEMP/tools/shellcheck.tar.xz"
+          echo "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198  $RUNNER_TEMP/tools/shellcheck.tar.xz" | sha256sum -c -
+          tar -xJf "$RUNNER_TEMP/tools/shellcheck.tar.xz" -C "$RUNNER_TEMP/tools" shellcheck-v0.11.0/shellcheck
+          mv "$RUNNER_TEMP/tools/shellcheck-v0.11.0/shellcheck" "$RUNNER_TEMP/tools/shellcheck"
           echo "$RUNNER_TEMP/tools" >> "$GITHUB_PATH"
 
       - name: Check exact PR head
