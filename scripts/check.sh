@@ -4,7 +4,7 @@ set -euo pipefail
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 cd "$REPO"
 
-for tool in luac stylua shellcheck make cc thurbox thurbox-cli tmux sqlite3 python3 ffprobe; do
+for tool in luac stylua shellcheck make cc thurbox thurbox-cli tmux sqlite3 python3 ffmpeg ffprobe; do
   command -v "$tool" >/dev/null || { echo "missing: $tool" >&2; exit 2; }
 done
 

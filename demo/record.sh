@@ -5,7 +5,7 @@ set -euo pipefail
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 OUT=${1:-$REPO/media/demo.gif}
-for tool in thurbox thurbox-cli tmux sqlite3 python3 asciinema agg ffmpeg; do
+for tool in thurbox thurbox-cli tmux sqlite3 python3 asciinema agg ffmpeg ffprobe; do
   command -v "$tool" >/dev/null || { echo "missing: $tool" >&2; exit 2; }
 done
 mkdir -p "$REPO/engine/src/build-thurbox"
@@ -63,11 +63,45 @@ if found:
 PY
 
 mkdir -p "$(dirname "$OUT")"
-agg --font-size 15 --idle-time-limit 2 --last-frame-duration 3 "$CAST" "$S/full.gif" 2>"$S/agg.log" || {
+agg --font-size 15 --idle-time-limit 2 --last-frame-duration 1 "$CAST" "$S/full.gif" 2>"$S/agg.log" || {
   cat "$S/agg.log" >&2
   exit 1
 }
-ffmpeg -hide_banner -loglevel error -y -ss 1 -i "$S/full.gif" -t 32 \
+# Find the first fully painted gameplay frame in agg's rendered timeline.
+# Startup timing varies, so a fixed seek can leave an empty viewport at the
+# beginning of the delivered GIF.
+START=$(python3 - "$S/full.gif" <<'PY'
+from collections import Counter
+import subprocess
+import sys
+
+gif = sys.argv[1]
+times = subprocess.run(
+    ["ffprobe", "-v", "error", "-select_streams", "v:0",
+     "-show_entries", "frame=best_effort_timestamp_time", "-of", "csv=p=0", gif],
+    check=True, capture_output=True, text=True,
+).stdout.splitlines()
+video = subprocess.run(
+    ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", gif,
+     "-vf", "crop=iw*0.63:ih*0.16:iw*0.29:ih*0.77,scale=32:8:flags=neighbor",
+     "-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+    check=True, capture_output=True,
+).stdout
+frame_bytes = 32 * 8 * 3
+if len(video) != len(times) * frame_bytes:
+    raise SystemExit("could not inspect every rendered demo frame")
+for frame_number, offset in enumerate(range(0, len(video), frame_bytes)):
+    frame = video[offset:offset + frame_bytes]
+    pixels = (frame[i:i + 3] for i in range(0, frame_bytes, 3))
+    if Counter(pixels).most_common(1)[0][1] < 32 * 8 * 0.3:
+        # Give the terminal's remaining cell runs time to finish the HUD.
+        print(f"{float(times[frame_number]) + 0.5:.3f}")
+        break
+else:
+    raise SystemExit("recording never displayed a full gameplay frame")
+PY
+)
+ffmpeg -hide_banner -loglevel error -y -i "$S/full.gif" -ss "$START" -t 32 \
   -filter_complex 'fps=6,split[a][b];[a]palettegen=max_colors=128[p];[b][p]paletteuse=dither=bayer:bayer_scale=3' \
   "$OUT"
 echo "$OUT"
