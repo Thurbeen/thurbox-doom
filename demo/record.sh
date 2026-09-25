@@ -13,7 +13,7 @@ S=$(mktemp -d "$REPO/engine/src/build-thurbox/demo.XXXXXX")
 trap 'rm -rf "$S"' EXIT
 CAST="$S/demo.cast"
 
-RECORD_CAST="$CAST" TUI_COLS=116 TUI_ROWS=34 bash "$REPO/tests/smoke.sh"
+RECORD_CAST="$CAST" TUI_COLS=200 TUI_ROWS=56 bash "$REPO/tests/smoke.sh"
 
 # The engine prints its WAD's absolute sandbox path while starting. Blank the
 # startup diagnostic's visible text while retaining ANSI control sequences:
@@ -68,6 +68,6 @@ agg --font-size 15 --idle-time-limit 2 --last-frame-duration 3 "$CAST" "$S/full.
   exit 1
 }
 ffmpeg -hide_banner -loglevel error -y -ss 1 -i "$S/full.gif" -t 32 \
-  -filter_complex 'fps=6,scale=1024:-1:flags=neighbor,split[a][b];[a]palettegen=max_colors=128[p];[b][p]paletteuse=dither=bayer:bayer_scale=3' \
+  -filter_complex 'fps=6,split[a][b];[a]palettegen=max_colors=128[p];[b][p]paletteuse=dither=bayer:bayer_scale=3' \
   "$OUT"
 echo "$OUT"
