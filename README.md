@@ -27,7 +27,7 @@ on Linux x86_64. The released v2 interface supports cloned plugins, the
 program grant because it passes your keys to the game.
 
 The bundled Pipelines pane uses `F7`, so DOOM opens with **`F8`**. Both bindings
-load without a collision in v2.35.2. The engine binary is built for Linux x86_64;
+load without a collision in v2.35.3. The engine binary is built for Linux x86_64;
 other platforms need a compatible terminal engine configured in `doom.program`.
 
 ## What it does
