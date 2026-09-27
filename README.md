@@ -2,8 +2,9 @@
 
 Doom's engine, WADs, and settings for the **Doom tab** in
 [thurbox-code-review](https://github.com/Thurbeen/thurbox-code-review). The agent
-pane owns F5, the tab strip, focus, and the program surface. This package keeps
-the game files in its own clone; it does not add another visible pane or focus stop.
+pane owns F5, the tab strip, and focus. It imports `lib/doom.lua` from this
+package to render and control the program surface. The engine, WADs, and settings
+remain here; the compatibility pane adds no visible focus stop.
 
 Install both repositories as cloned plugins:
 

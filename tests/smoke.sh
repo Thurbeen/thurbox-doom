@@ -13,6 +13,16 @@ export THURBOX_CONFIG_DIR="$S/config/thurbox" THURBOX_DATA_DIR="$S/data/thurbox"
 export THURBOX_UI_DIR="$S/ui"
 mkdir -p "$THURBOX_CONFIG_DIR" "$THURBOX_DATA_DIR" "$THURBOX_UI_DIR"
 "$CLI" plugin install "$REPO" --text > "$S/install.txt"
+mkdir -p "$S/ui/thurbox-doom/plugins" "$S/ui/thurbox-doom/lib"
+cp "$REPO/plugins/40_doom.lua" "$S/ui/thurbox-doom/plugins/40_doom.lua"
+cp "$REPO/lib/doom.lua" "$S/ui/thurbox-doom/lib/doom.lua"
+rm "$S/ui/plugins/40_doom.lua"
+rm "$S/ui/plugins.lock"
+cat > "$S/ui/plugins.toml" <<'TOML'
+[[plugin]]
+src = "git+https://github.com/Thurbeen/thurbox-doom"
+file = "thurbox-doom/plugins/40_doom.lua"
+TOML
 "$CLI" plugin check --text > "$S/check.txt"
 rg -q 'doom' "$S/check.txt"
 if rg -qi 'doom.open|claimed by both|failed' "$S/check.txt"; then

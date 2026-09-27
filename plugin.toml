@@ -1,4 +1,4 @@
-# Doom's payload and settings provider for the agent pane.
+# Doom's payload, renderer module, and settings provider for the agent pane.
 #
 # This plugin carries a WAD, so it is installed by CLONING it — the file-by-file
 # path decodes what it fetches as UTF-8 and would corrupt game data:
