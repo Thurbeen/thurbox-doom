@@ -25,8 +25,8 @@ file = "thurbox-doom/plugins/40_doom.lua"
 TOML
 "$CLI" plugin check --text > "$S/check.txt"
 rg -q 'doom' "$S/check.txt"
-if rg -qi 'doom.open|claimed by both|failed' "$S/check.txt"; then
+if rg -qi '(^  ! |claimed by both|failed)' "$S/check.txt"; then
   cat "$S/check.txt" >&2
   exit 1
 fi
-printf 'Doom package loads without a separate F5 pane\n'
+printf 'Standalone Doom loads with F5 and no plugin warnings\n'

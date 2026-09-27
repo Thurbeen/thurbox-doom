@@ -5,6 +5,9 @@ Doom's engine, WADs, and settings for the **Doom tab** in
 pane owns F5, the tab strip, and focus. It imports `lib/doom.lua` from this
 package to render and control the program surface. The engine, WADs, and settings
 remain here; the compatibility pane adds no visible focus stop.
+Its action-band Doom entry invokes the agent pane's `doom.open` action, so it
+also opens the tab instead of the old standalone pane. Without code-review
+installed, the same file supplies the earlier standalone pane and F5 binding.
 
 Install both repositories as cloned plugins:
 
