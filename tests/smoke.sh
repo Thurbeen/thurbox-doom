@@ -24,8 +24,8 @@ src = "git+https://github.com/Thurbeen/thurbox-doom"
 file = "thurbox-doom/plugins/40_doom.lua"
 TOML
 "$CLI" plugin check --text > "$S/check.txt"
-rg -q 'doom' "$S/check.txt"
-if rg -qi '(^  ! |claimed by both|failed)' "$S/check.txt"; then
+grep -q 'doom' "$S/check.txt"
+if grep -Eqi '(^  ! |claimed by both|failed)' "$S/check.txt"; then
   cat "$S/check.txt" >&2
   exit 1
 fi
