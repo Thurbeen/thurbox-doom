@@ -1,4 +1,4 @@
-# The DOOM pane.
+# Doom's payload, renderer module, and settings provider for the agent pane.
 #
 # This plugin carries a WAD, so it is installed by CLONING it — the file-by-file
 # path decodes what it fetches as UTF-8 and would corrupt game data:
@@ -17,7 +17,7 @@
 # The linux-x86_64 engine and two WADs ship in this clone. Other platforms can
 # set `doom.program` to a compatible terminal engine; see the README.
 name = "doom"
-description = "DOOM in a pane: a program surface, a built engine and a WAD"
+description = "DOOM engine, WAD, and settings for the agent pane's Doom tab"
 version = "v0.8.0"
 requires_thurbox = ">=2.35.2"
 

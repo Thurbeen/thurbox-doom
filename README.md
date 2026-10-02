@@ -1,79 +1,49 @@
 # thurbox-doom
 
-DOOM in a thurbox pane. One Lua file asks the kernel for a program pane, frames it
-and owns the key rules; the kernel runs the program in a real terminal, resizes it to
-the rect and parses its output into cells. The plugin never sees a frame.
+Doom's engine, WADs, and settings for the **Doom tab** in
+[thurbox-code-review](https://github.com/Thurbeen/thurbox-code-review). The agent
+pane owns F5, the tab strip, and focus. It imports `lib/doom.lua` from this
+package to render and control the program surface. The engine, WADs, and settings
+remain here; the compatibility pane adds no visible focus stop.
+Its action-band Doom entry invokes the agent pane's `doom.open` action, so it
+also opens the tab instead of the old standalone pane. Without code-review
+installed, the same file supplies the earlier standalone pane and F5 binding.
 
-**Everything it needs ships with it, DOOM included.**
-`thurbox-cli plugin install git+…` clones this repository into your interface
-directory, which brings the pane, a built engine and a freely-redistributable WAD.
-Grant the pane one capability and it plays: nothing to configure, nothing to fetch.
+Install both repositories as cloned plugins:
 
-```text
-<interface dir>/thurbox-doom/plugins/40_doom.lua           the pane
-<interface dir>/thurbox-doom/engine/bin/linux-x86_64/doom  DOOM, statically linked
-<interface dir>/thurbox-doom/wad/doom1.wad                 the WAD (Freedoom beside it)
+```bash
+thurbox-cli plugin install git+https://github.com/Thurbeen/thurbox-code-review
+thurbox-cli plugin install git+https://github.com/Thurbeen/thurbox-doom
+thurbox-cli plugin check
 ```
 
-The binary is **linux-x86_64** only — the one target that could be built *and run*
-where this was written. On any other machine the pane names it and points at
-`engine/src`, which is a `make` away, or at the `doom.program` setting.
+The code-review README explains how to replace the bundled agent pane. Installing
+the Doom package puts its Linux x86_64 engine and WADs on disk but runs neither.
+With a session selected, click **Doom** in the agent pane's strip or press **F5**.
+F5 again returns to Agent. The selected tab is remembered per session.
 
-![DOOM running in thurbox, opened with F5 and played in its program pane](media/demo.gif)
+Grant the **program** capability to `thurbox-code-review/plugins/20_agent.lua` from
+`Ctrl+,` → `]` → the file → `t`. Until then, the Doom tab shows the exact command
+it would run and the grant steps. Review's optional `run` capability is separate.
+No settings file needs to be edited by hand.
 
-Validated with **[thurbox v2.35.3](https://github.com/Thurbeen/thurbox/releases/tag/v2.35.3)**
-on Linux x86_64. The released v2 interface supports cloned plugins, the
-`program` capability and manifest-named panes. The plugin asks for an interactive
-program grant because it passes your keys to the game.
+The Doom settings remain on `thurbox-doom/plugins/40_doom.lua` in the Interface
+settings tab. Existing `doom.program`, `doom.wad`, `doom.args`, and `doom.footer`
+overrides continue to apply:
 
-The released Shell and Sessions actions use `F8` and `F9`; `F12` is reserved by
-the kernel. DOOM opens with **`F5`**. The bindings load without a collision in
-v2.35.3. The engine binary is built for Linux x86_64;
-other platforms need a compatible terminal engine configured in `doom.program`.
+| Setting | Default | Purpose |
+|---|---|---|
+| `doom.program` | bundled Linux x86_64 engine | Relative paths resolve in the Doom clone; absolute paths are used as given. |
+| `doom.wad` | `wad/doom1.wad` | The last program argument; `wad/freedoom1.wad` is also included. |
+| `doom.args` | `-iwad` | Arguments before the WAD. |
+| `doom.footer` | `true` | Show the controls row. |
 
-## What it does
+On other platforms, the tab explains how to build an engine or configure
+`doom.program`. `Ctrl+Alt+R` restarts the game; `Ctrl+Alt+X` stops it. The game
+receives movement, firing, map, and menu keys while its surface is shown.
 
-- **No engine for this platform** → a panel showing the bundled WAD and how to
-  build or name a compatible engine.
-- **Named but not trusted** → what it would run, and how to grant the capability.
-- **Trusted** → it asks for its pane every frame and frames the surface, with a
-  controls row underneath.
-- **Released** (`ctrl+alt+x`) → the program is stopped and the pane given up, with the
-  chord that starts it again.
-
-No session is involved: the pane belongs to the plugin, so there is one DOOM whatever
-session is selected, and none is required. Nothing is persisted — the kernel re-finds
-the pane by its window name, and `F10` leaves the game running.
-
-There is **no `agents.toml` entry**. An earlier version of this plugin created a
-session whose "agent" was DOOM, which is a game pretending to be a coding agent to
-borrow the one field of the session model that spawns a pty. The kernel now lends a
-plugin its own pane, so that is gone.
-
-## Finding it
-
-`center` is a **switch** slot, so this pane is an alternate behind the agent: it draws
-nothing until it is focused. Install it, launch thurbox and you will see the agent pane
-— which is why the plugin advertises itself three ways:
-
-- a **DOOM** entry in the action band along the bottom;
-- **`f5`** from anywhere (rebindable, and it appears in `F1` help). **The same key takes
-  you back**: pressed while the pane has focus it returns to whatever you were in
-  before, so one key is both the way in and the way out;
-- the focus ring — `ctrl+h` / `ctrl+l` — if you would rather walk.
-
-**`Esc` is not the way out while the game is running**, and that is deliberate on both
-sides: the kernel treats a keystroke as consumed when it actually reaches a program, so a
-live DOOM takes `Esc` for its own menu and focus stays put. On the panels above — where
-there is nothing behind the pane — `Esc` finds no target and leaves, which is the kernel's
-normal "dismiss this pane". So: `Esc` for DOOM's menu, `f5` to leave.
-
-Reported by someone who installed it cold and saw an empty-looking interface, which is
-the failure worth avoiding: "installed correctly and appears to have done nothing".
-
-If you would rather have DOOM beside the agent instead of taking turns with it, give
-the pane a slot of its own and place that slot in `layout.lua` — two lines, and
-`thurbox-cli plugin check` prints the one you need.
+The [demo](media/demo.gif) shows the earlier standalone pane. The program surface
+and game controls remain the same; the surrounding chrome is now the agent pane.
 
 ## The engine
 
@@ -139,145 +109,6 @@ doom.wad = wad/freedoom1.wad
 Or point it at any IWAD you own — `doom.wad`, `doom2.wad`, `plutonia.wad`. A commercial
 WAD you bought is yours; shipping one would be somebody else's problem, which is why
 neither is here.
-
-## Install
-
-The WAD is why this is installed by **cloning** rather than fetched file by file: the
-file-by-file path decodes what it fetches as UTF-8, so a WAD through it would be
-silently corrupted rather than refused.
-
-```bash
-thurbox-cli plugin install git+https://github.com/Thurbeen/thurbox-doom
-```
-
-A `git+` prefix, a `.git` suffix or `git@host:path` are the three forms that clone; a
-bare `https://…` deliberately does not, because that spelling already means "fetch the
-files this manifest names from this base".
-
-The working copy lands at `<interface dir>/thurbox-doom/` and **keeps its `.git`**,
-which is what makes `thurbox-cli plugin update` a fetch and what protects your edits:
-git will not move a dirty working tree, so a `sync` over a pane you changed reports
-`kept`, and `git diff` shows what you did. The entry recorded is:
-
-```toml
-[[plugin]]
-src  = "git+https://github.com/Thurbeen/thurbox-doom"
-file = "thurbox-doom/plugins/40_doom.lua"
-```
-
-`install` finds that pane itself: `plugin.toml` names it (`pane.source`), and failing a
-manifest it takes the single `.lua` under `plugins/`. The lock records the **commit**,
-not the branch, so the same spec and lock reproduce the same bytes elsewhere. Load
-order still comes from the `40_` prefix.
-
-> **`thurbox-cli plugin install doom` does not install this.** A bare name resolves
-> into the thurbox repository's own examples, where a smaller `doom` pane demonstrates
-> the capability.
-
-**What cloning means, plainly:** it puts this repository's files on your disk,
-including the Linux engine binary and both WADs. Installing does not run the
-engine; granting the `program` capability lets the pane start it.
-
-`~/.config/thurbox/ui/` is the interface directory, watched, so the pane appears on
-save (120 ms debounce); `F10` forces a reload. `THURBOX_UI_DIR` overrides the path, and
-a dev build (`0.0.0-dev`) reads `~/.config/thurbox-dev/ui` instead.
-
-The pane declares `slot = "center"`, which the stock `layout.lua` always places, so
-**there is no arrangement edit to make** and `thurbox-cli plugin check` — which fails a
-pane whose slot nothing places — has nothing to complain about. The cost is that DOOM
-and the agent take turns in the centre; give the pane a slot of its own if you would
-rather have both.
-
-**If you build an engine yourself, build it somewhere else.** Two reasons, both about
-this directory: it is watched recursively, so a package manager running under it fires
-thousands of events and — counter-intuitively — the interface stops reloading rather
-than reloading too often, because a burst keeps the debounce rolling forward. And
-anything you generate inside the clone makes the tree dirty, which is exactly what
-makes `update` report `kept` and refuse to move. A cache under
-`${XDG_CACHE_HOME:-~/.cache}` costs nothing and avoids both.
-
-## Trust it
-
-The pane draws a panel until you grant the capability:
-
-```text
-settings (ctrl+, or F6) → ] to the Interface tab → select the file → t
-```
-
-`program` is a **different grant from `run`**, deliberately. `run` is bounded on every
-axis that matters — capped output, a timeout, four at a time — and an interactive
-program has none of those and holds your keyboard as well. Trusting a pane to poll
-`top` is not the same decision as letting it hold a process open on your keystrokes.
-
-Installing grants nothing. Nothing starts until you say `t`.
-
-## Settings
-
-Declared as data, so they appear in the settings modal and are stored in
-`~/.config/thurbox/ui.json`.
-
-| Setting | Default | What it does |
-|---|---|---|
-| `doom.program` | *(empty → the shipped engine)* | the DOOM to run. Empty resolves to `engine/bin/<os>-<arch>/doom` inside this clone, which exists for `linux-x86_64`; on a machine with no shipped build the pane says so. A relative path resolves in the clone, an absolute one is used as given |
-| `doom.wad` | `wad/doom1.wad` | WAD, passed as the **last** argument. A **relative** path resolves inside this plugin's clone, so the default is the shareware episode shipped with it; `wad/freedoom1.wad` is the free alternative, and an absolute path is used as given |
-| `doom.args` | `-iwad` | arguments **before** the WAD, split on spaces. The shipped engine requires `-iwad`; clear it if your own port takes a positional WAD |
-| `doom.footer` | `true` | draw the controls row (it costs the game one row) |
-
-`program` is empty in the modal rather than pre-filled with a path, because what it
-resolves to depends on the machine: the pane asks `thurbox.platform` and looks for the
-build this repository ships for that `os-arch`. It knows which ones were committed, so
-it never exec's a path it has no reason to believe in — on an unshipped platform it
-names the machine and offers the two ways forward. The WAD default names the
-bundled shareware episode; Freedoom also ships in `wad/`.
-
-The pane wraps those paths over up to three rows, then keeps both ends when a
-path is longer. That preserves the filename in a long interface directory.
-
-**Paths.** A relative `wad` resolves inside this plugin's clone
-(`<interface dir>/thurbox-doom/`), which is where its own files are. Everything else
-wants an absolute path: a program pane has no session and therefore no repository, so
-the kernel runs the program in the interface directory, and a relative `program` would
-resolve against `~/.config/thurbox/ui/` rather than where you meant.
-
-**Why `wad` is separate from `args`.** Arguments are passed as a list and quoted
-individually, so a WAD path containing a space survives as one argument. `args` is
-split on whitespace for flags; the path that must not be split has its own field. The
-default `-iwad` is the shipped engine's requirement, not decoration: without the flag
-it searches the working directory for a handful of well-known WAD names, finds none,
-and exits with `Game mode indeterminate`.
-
-## Controls
-
-Everything the plugin does not claim goes to the program, because it declares
-`input = "session"`.
-
-| Action | Keys |
-|---|---|
-| move | `↑` `↓` `←` `→`, or `w` `a` `s` `d` |
-| turn | `q` `e` |
-| fire | `f`, or any `ctrl` chord |
-| use / open | `space` |
-| run | `r` |
-| strafe | `,` `.` |
-| weapons | `1`–`7` |
-| automap | `tab` |
-| menu | `esc` — DOOM's own; it does not leave the pane |
-
-Those are the shipped engine's, and they are DOOM's own where a terminal can express
-them plus substitutes where it cannot: nothing can see a bare `shift` or `ctrl` held
-down, so `r` runs and `f` fires. A `program` of your own will have its own map.
-
-| Chord | Does |
-|---|---|
-| `f5` | show the DOOM pane, or leave it if it already has focus (global) |
-| `ctrl+alt+r` | restart DOOM in this pane |
-| `ctrl+alt+x` | stop it and give up the pane |
-
-`f5` is global, so it reaches a pane you cannot yet see; the other two are
-plugin-scoped and fire only while this pane has focus. All three are rebindable
-(`~/.config/thurbox/ui.json`). The pane-scoped two are `ctrl+alt+`
-chords because a declared chord is consumed before the surface ever sees it, and DOOM
-wants every bare key there is — the letters included, for cheats.
 
 ### Held keys, the repeat delay, and the one number that matters
 
@@ -372,30 +203,10 @@ accompany it — removing them would break them.
 So: MIT for the pane, GPL-2.0 for the engine, and for the data one open licence and one
 permission. A commercial WAD you supply yourself is your own affair.
 
-## Demo and checks
+## Checks
 
-`media/demo.gif` was recorded from the real v2.35.3 TUI and the bundled DOOM
-engine. `demo/record.sh` copies the installed interface into an isolated
-environment, grants only that copy, drives the pane with tmux, captures the
-terminal at 200×56 cells with asciinema, and starts the first level with the
-plugin's `args` setting. It keeps DOOM focused throughout gameplay, removes
-the engine's temporary startup path from the cast, trims the initial pane
-repaint after the HUD appears, then renders an 1818×1197 GIF at agg's native
-size with ffmpeg preserving its sharp cell edges. `bash tests/demo_media.sh`
-decodes the delivered GIF and checks every frame for an empty gameplay viewport.
-Recreate it with:
-
-```bash
-bash demo/record.sh
-```
-
-`bash tests/smoke.sh` uses the same isolated setup. It checks the current
-interface's key registry for a collision, opens DOOM with F5, and confirms that
-the engine has a live program window. Before the F5 change, F8 collided with
-`shell.open` and F12 opened the kernel's performance overlay instead of DOOM.
-
-To try the installed plugin yourself: install it with the command above, run
-`thurbox-cli plugin check`, grant `program` in the Interface settings tab,
-press **F5**, select New Game, an episode and a skill with **Enter**, move with
-the arrow keys, and press **F5** again to leave. The next F5 returns to the
-running game.
+`bash scripts/check.sh` runs Lua formatting, engine tests, and the media check.
+The agent-pane integration is exercised by `tests/run.sh --render` in
+thurbox-code-review and by `thurbox-cli plugin check` after installing both plugins.
+The existing demo records the earlier standalone pane and is retained as gameplay
+reference.
