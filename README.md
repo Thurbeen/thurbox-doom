@@ -42,8 +42,13 @@ On other platforms, the tab explains how to build an engine or configure
 `doom.program`. `Ctrl+Alt+R` restarts the game; `Ctrl+Alt+X` stops it. The game
 receives movement, firing, map, and menu keys while its surface is shown.
 
-The [demo](media/demo.gif) shows the earlier standalone pane. The program surface
-and game controls remain the same; the surrounding chrome is now the agent pane.
+![DOOM in thurbox's standalone Doom pane, in the Doom theme](media/demo.gif)
+
+The demo is the standalone pane, recorded in thurbox's built-in Doom theme: F5,
+then E1M1 and its automap. With the agent pane the program surface and game
+controls are the same; only the surrounding chrome differs.
+`bash demo/record.sh` re-records it against the thurbox on `PATH`, from this
+repository's committed state, in a throwaway home and tmux server.
 
 ## The engine
 
@@ -208,5 +213,4 @@ permission. A commercial WAD you supply yourself is your own affair.
 `bash scripts/check.sh` runs Lua formatting, engine tests, and the media check.
 The agent-pane integration is exercised by `tests/run.sh --render` in
 thurbox-code-review and by `thurbox-cli plugin check` after installing both plugins.
-The existing demo records the earlier standalone pane and is retained as gameplay
-reference.
+`tests/demo_media.sh` checks that the committed demo keeps gameplay in every frame.
