@@ -123,7 +123,7 @@ cat >"$S/run.sh" <<RUN
 #!/usr/bin/env bash
 export TERM=xterm-256color COLORTERM=truecolor SHELL=/bin/sh PS1='\$ '
 cd "$P"
-exec $(command -v "$TUI")
+exec "$(command -v "$TUI")"
 RUN
 chmod +x "$S/run.sh"
 
