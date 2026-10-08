@@ -222,9 +222,10 @@ void DG_DrawFrame(void)
 	// drawing this frame while the game continues ticking and accepting input.
 	if (!flush_frame())
 		return;
-	int clear = resized;
+	int clear = 0;
 	if (resized) {
 		resized = 0;
+		clear = 1;
 		measure();
 	}
 	if (!shadow || cols <= 0 || rows <= 0)
@@ -322,6 +323,13 @@ void DG_SleepMs(uint32_t ms)
 
 static void push(int pressed, unsigned char key)
 {
+	// A buffered repeat burst needs one down event, not a queue full of the
+	// same event. Separately polled presses still reach menus and shortcuts.
+	if (pressed && queue_head != queue_tail) {
+		int previous = (queue_tail + EVENT_QUEUE - 1) % EVENT_QUEUE;
+		if (queue[previous].pressed && queue[previous].key == key)
+			return;
+	}
 	int next = (queue_tail + 1) % EVENT_QUEUE;
 	if (next == queue_head)
 		return; // full: dropping is better than blocking the game
@@ -344,13 +352,18 @@ static void press(unsigned char key)
 			key_gap[key] = gap;
 	}
 	key_seen[key] = now;
-	if (!key_down[key]) {
+	int was_down = key_down[key];
+	if (!was_down) {
 		// A new hold has its own initial repeat delay. Reusing an old short
 		// interval releases it before the first repeat can arrive.
 		key_gap[key] = 0;
 		key_down[key] = 1;
-		push(1, key);
 	}
+	// DOOM's menu and automap consume keydown events, not held-key state.
+	// Preserve each incoming press even while its inferred hold is active.
+	// Shift is counted by I_GetEvent, so only its initial transition is sent.
+	if (!was_down || key != KEY_RSHIFT)
+		push(1, key);
 }
 
 // How long this key may stay down without another press.

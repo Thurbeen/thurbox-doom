@@ -32,12 +32,13 @@ def run():
     with tempfile.TemporaryDirectory(prefix="input-", dir=BUILD) as scratch:
         binary = Path(scratch) / "doom-traced"
         trace = Path(scratch) / "events"
+        menu_trace = Path(scratch) / "menu"
         subprocess.run(["cc", "-O2", "-I" + str(ROOT / "engine/src"),
                         str(ROOT / "tests/input_trace.c"), *objects,
-                        "-Wl,--wrap=DG_GetKey", "-lm", "-o", str(binary)], check=True)
+                        "-Wl,--wrap=DG_GetKey", "-Wl,--wrap=M_Responder", "-lm", "-o", str(binary)], check=True)
         master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 100, 0, 0))
-        env = dict(os.environ, DOOM_INPUT_TRACE=str(trace))
+        env = dict(os.environ, DOOM_INPUT_TRACE=str(trace), DOOM_MENU_TRACE=str(menu_trace))
         proc = subprocess.Popen([str(binary), "-iwad", str(ROOT / "wad/doom1.wad"),
                                  "-warp", "1", "1", "-config", str(Path(scratch) / "config")],
                                 stdin=slave, stdout=slave, stderr=slave, cwd=scratch, env=env)
@@ -125,6 +126,27 @@ def run():
             latency = tabs[0][0] - start if tabs else None
             check(latency is not None and latency < 250,
                   f"1024-byte repeat backlog: trailing Tab reaches engine in {latency} ms")
+            # Standalone comparison: two real menu actions with a quiet 150 ms
+            # gap, no host or SSH transport. An inferred 700 ms hold must not
+            # discard the second terminal press.
+            os.write(master, b"\x1b")
+            wait(0.15)
+            start = ticks()
+            os.write(master, b"\x1b")
+            wait(0.15)
+            menu = ([tuple(map(int, line.split())) for line in menu_trace.read_text().splitlines()]
+                    if menu_trace.exists() else [])
+            latency = menu[1][0] - start if len(menu) > 1 else None
+            check(len(menu) == 2 and [e[1] for e in menu] == [1, 0]
+                  and latency is not None and latency < 100,
+                  f"standalone quick Esc taps open then close menu; second action {latency} ms")
+            start = ticks()
+            for _ in range(5):
+                os.write(master, b"r")
+                wait(0.04)
+            wait(0.18)
+            shift = [e[1] for e in events() if e[0] >= start and e[2] == 0xb6]
+            check(shift == [1, 0], "repeated run modifier has one down and one up")
         finally:
             proc.terminate()
             try:
