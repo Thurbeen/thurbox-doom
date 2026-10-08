@@ -147,6 +147,23 @@ until its physical release; auto-repeat is not needed to keep it held. Partial i
 sequences survive split reads. Physical aliases such as `w` and Up remain held until
 both release. The terminal's previous keyboard mode is restored on normal game exit.
 
+The frontend also queries Windows Terminal's
+[Win32 input mode](https://github.com/microsoft/terminal/blob/main/doc/specs/%234999%20-%20Improved%20keyboard%20handling%20in%20Conpty.md)
+and enables it only after a supported mode reply. Its virtual-key records supply
+real down/up events, including releases with no character and independent physical
+Shift keys. A mode that was already enabled remains enabled on exit. The protocol
+path is covered by standalone PTY tests; the operator's Windows Terminal version
+and actual end-to-end presentation remain unverified. A host or PTY path that
+strips release records still falls back to timing inference.
+
+`python3 tests/fire_input.py` counts actual pistol ammunition. The original plain
+`f` tap used two rounds because its synthetic 700 ms hold crossed the refire cycle.
+Press-only fire now expires after 60 ms: each tested tap uses one round, while
+real reported holds still fire continuously and stop on release. This short fire
+fallback can pause a legacy hold before desktop auto-repeat starts; `-release`
+continues to control movement keys. The test also checks Win32 tap angles, held
+turning, modifier aliases and mode restoration.
+
 ```mermaid
 flowchart LR
   T[Modern terminal] -->|press / repeat / release| E[Standalone engine]
@@ -254,7 +271,7 @@ uses PureDOOM and schedules 50 ms releases. The checked Terminal Doom versions o
 changing the vendored engine would not replace the frontend input/output handling.
 
 For press-only input the compatibility fallback remains: `-release` defaults to
-700 ms on each hold, then shrinks to twice the learned repeat interval plus 20 ms
+700 ms on each movement hold, then shrinks to twice the learned repeat interval plus 20 ms
 (with a 60 ms floor). Movement/use taps may merge; separately received presses still
 reach menus and shortcuts. `make -C engine/src test` checks this fallback against a
 fake clock. Startup screen wipes still suspend ordinary input polling; terminal

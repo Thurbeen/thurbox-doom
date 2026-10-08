@@ -49,7 +49,9 @@ images in both protocols, compares pixel hashes, and verifies cadence, backpress
 and normal-exit cleanup. `python3 tests/mouse_input.py` checks SGR motion against
 actual player yaw, native mouse controls, independent button releases, focus loss,
 blocked output and terminal-mode restoration. `-nomouse` disables mouse reporting;
-otherwise the frontend requests all motion in cell coordinates. Terminal window
+otherwise the frontend requests all motion in cell coordinates.
+`python3 tests/fire_input.py` checks actual pistol ammunition per tap/hold and the
+negotiated Win32 keyboard path, including physical modifiers and mode cleanup. Terminal window
 edges limit pointer travel, and wheel events are ignored.
 `python3 tests/ghostty_input.py` is the optional physical-key comparison under an
 isolated Ghostty/Xvfb display; it also records `media/input-turning.gif`. This optional
@@ -67,8 +69,8 @@ Needs a C compiler and `make`; nothing else. Built here with
 `cc (GCC) 16.2.1 20260810` and `-O2 -static`.
 
 ```text
-sha256  5f35dff99963315f0c836d224bfc58f002c85e901a192c2ad7861f14aefd11ab  bin/linux-x86_64/doom
-sha256  696727204e0a072608d4397faf5fa03e66b4440ca44c26397c5e570efcff8943  src/doomgeneric_thurbox.c
+sha256  294fa65a423352c6e2d55f7a60f4cc5e76f7cfb0ec3b3a50c72b9ced87759ae0  bin/linux-x86_64/doom
+sha256  6b2a3b2f8b30c5a088344f3cfefbeddf246b43df30eff6e4e0a0e26405598a23  src/doomgeneric_thurbox.c
 sha256  e080cf8f95586f39faf328cb17f4c3724cb19a9a42d5302ef11b71086a9defb8  src/terminal_graphics.c
 sha256  08f7379017a253d7e5eac2ecd918ebeb08903b0f1a09a253be6aad16f3ea015f  src/terminal_graphics.h
 ```
@@ -108,8 +110,10 @@ Three things worth knowing about the frontend:
   than blocking game ticks. Measured against a full-repaint port on
   the same WAD and terminal size: **~11 KB a frame instead of ~53 KB**, about
   0.7 MB/s instead of 3.7.
-- **It requests real key releases** with Kitty keyboard flags 11, and keeps a
+- **It requests real key releases** with Kitty keyboard flags 11 and negotiated
+  Windows Terminal Win32 input mode, and keeps a
   reported key down until its release, independent of repeat delay. A press-only
   host must be changed to forward those events. Timing inference is retained only
   for a legacy byte stream; its 700 ms initial timeout can turn a lone arrow tap
-  through 79.1° and cannot distinguish that tap from a hold.
+  through 79.1° and cannot distinguish that tap from a hold. Press-only fire uses
+  a separate 60 ms timeout so one pistol tap does not cross a refire cycle.
