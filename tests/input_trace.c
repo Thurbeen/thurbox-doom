@@ -55,7 +55,7 @@ void __wrap_G_Ticker(void)
         static FILE *player;
         if (!player) { player = fopen(player_path, "w"); if (!player) abort(); setvbuf(player, NULL, _IONBF, 0); }
         ticcmd_t *cmd = &players[consoleplayer].cmd;
-        fprintf(player, "%u %u %d %d\n", DG_GetTicksMs(), cmd->buttons, cmd->forwardmove, cmd->sidemove);
+        fprintf(player, "%u %u %d %d %d\n", DG_GetTicksMs(), cmd->buttons, cmd->forwardmove, cmd->sidemove, players[consoleplayer].ammo[am_clip]);
     }
     fprintf(ticks, "%u %u\n", DG_GetTicksMs(),
             players[consoleplayer].mo ? players[consoleplayer].mo->angle : 0u);

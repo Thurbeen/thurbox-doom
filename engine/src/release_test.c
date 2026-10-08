@@ -120,14 +120,14 @@ int main(void)
 	map_byte('f');
 	drained(KEY_FIRE, &down, &up);
 	check(down, "tap: goes down");
-	fake_ms += 299;
+	fake_ms += 59;
 	expire_keys();
 	drained(KEY_FIRE, &down, &up);
-	check(!up, "tap: held for the full window");
+	check(!up, "fire tap: stays down for 59 ms despite -release 300");
 	fake_ms += 2;
 	expire_keys();
 	drained(KEY_FIRE, &down, &up);
-	check(up, "tap: released at 301 ms");
+	check(up, "fire tap: releases at 61 ms before pistol refire");
 
 	// --- a new hold needs its initial repeat delay again ------------------------
 	reset();
