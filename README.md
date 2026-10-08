@@ -117,6 +117,28 @@ Or point it at any IWAD you own — `doom.wad`, `doom2.wad`, `plutonia.wad`. A c
 WAD you bought is yours; shipping one would be somebody else's problem, which is why
 neither is here.
 
+### Mouse input
+
+Standalone play enables SGR mouse reporting for motion, presses and releases.
+Move the pointer horizontally to turn and vertically to move forward/backward.
+DOOM's default buttons are left to fire, right to strafe while moving the mouse,
+and middle to move forward. The Options menu's mouse sensitivity setting applies.
+Multiple motions arriving together are summed, and each button releases independently.
+Losing terminal focus releases held buttons and keys. Normal game exit restores
+saved mouse modes where supported (otherwise disabling capture); `-nomouse` leaves mouse reporting disabled.
+
+The terminal reports cell positions within its window, so movement stops at its
+edge; it cannot supply unlimited relative pointer capture. Mouse-wheel reports
+are ignored. The inspected thurbox host handles pointer motion and clicks for its
+own UI instead of forwarding them to this program surface. Mouse play there needs
+a separate host change; this frontend provides standalone mouse support.
+
+`python3 tests/mouse_input.py` runs the real engine in a PTY. Before the fix it
+fails because mouse reporting is never requested. With the fix, three horizontal
+cells turn the actual player 1.055°, subsequent idle ticks do not keep turning,
+and native firing, strafing, forward movement, button releases, focus loss,
+blocked output and normal-exit cleanup are checked.
+
 ### Keyboard input: real releases and the timing fallback
 
 The engine requests [Kitty keyboard protocol](https://sw.kovidgoyal.net/kitty/keyboard-protocol/)

@@ -46,7 +46,11 @@ real press/repeat/release events, held-turn continuity, frame cadence, split rea
 aliases, terminal-mode restoration, full-grid scaling, large-screen cadence, and
 resumed rendering after resize. `python3 tests/graphics_output.py` decodes real engine
 images in both protocols, compares pixel hashes, and verifies cadence, backpressure
-and normal-exit cleanup.
+and normal-exit cleanup. `python3 tests/mouse_input.py` checks SGR motion against
+actual player yaw, native mouse controls, independent button releases, focus loss,
+blocked output and terminal-mode restoration. `-nomouse` disables mouse reporting;
+otherwise the frontend requests all motion in cell coordinates. Terminal window
+edges limit pointer travel, and wheel events are ignored.
 `python3 tests/ghostty_input.py` is the optional physical-key comparison under an
 isolated Ghostty/Xvfb display; it also records `media/input-turning.gif`. This optional
 Linux test needs Ghostty, Xvfb, X11/XTest libraries and ffmpeg. Both tests need
@@ -63,8 +67,8 @@ Needs a C compiler and `make`; nothing else. Built here with
 `cc (GCC) 16.2.1 20260810` and `-O2 -static`.
 
 ```text
-sha256  15ac837ec3d792fbfbf694765c2b511024ed77e76047a93305a04e7faf3651eb  bin/linux-x86_64/doom
-sha256  5fc0b1b8cee431430ddb931fde8f8891f4c2ee95a35b052dc0833655b5969116  src/doomgeneric_thurbox.c
+sha256  5f35dff99963315f0c836d224bfc58f002c85e901a192c2ad7861f14aefd11ab  bin/linux-x86_64/doom
+sha256  696727204e0a072608d4397faf5fa03e66b4440ca44c26397c5e570efcff8943  src/doomgeneric_thurbox.c
 sha256  e080cf8f95586f39faf328cb17f4c3724cb19a9a42d5302ef11b71086a9defb8  src/terminal_graphics.c
 sha256  08f7379017a253d7e5eac2ecd918ebeb08903b0f1a09a253be6aad16f3ea015f  src/terminal_graphics.h
 ```
