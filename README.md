@@ -124,11 +124,21 @@ Move the pointer horizontally to turn and vertically to move forward/backward.
 DOOM's default buttons are left to fire, right to strafe while moving the mouse,
 and middle to move forward. The Options menu's mouse sensitivity setting applies.
 Multiple motions arriving together are summed, and each button releases independently.
+Press `m` to pause mouse control, reposition the pointer, then press `m` to resume.
+The first sample after resuming anchors the pointer without moving the view.
+Mouse repeats do not toggle the mode again; `-nomouse` disables reporting entirely.
 Losing terminal focus releases held buttons and keys. Normal game exit restores
 saved mouse modes where supported (otherwise disabling capture); `-nomouse` leaves mouse reporting disabled.
 
 The terminal reports cell positions within its window, so movement stops at its
-edge; it cannot supply unlimited relative pointer capture. Mouse-wheel reports
+edge; it cannot supply unlimited relative pointer capture. Reaching a boundary
+releases mouse buttons and clears the position anchor. A later no-button motion
+recovers a release that happened outside the terminal; returning with a button
+still held restores that hold. Resize, 250 ms without reports, or jumps larger
+than a quarter of the viewport also discard the old anchor. This conservative
+rule can discard the first movement after a pause or a fast large flick. Use `m`
+for deliberate repositioning: terminals do not reliably report every exit.
+Mouse-wheel reports
 are ignored. The inspected thurbox host handles pointer motion and clicks for its
 own UI instead of forwarding them to this program surface. Mouse play there needs
 a separate host change; this frontend provides standalone mouse support.
@@ -137,7 +147,19 @@ a separate host change; this frontend provides standalone mouse support.
 fails because mouse reporting is never requested. With the fix, three horizontal
 cells turn the actual player 1.055°, subsequent idle ticks do not keep turning,
 and native firing, strafing, forward movement, button releases, focus loss,
-blocked output and normal-exit cleanup are checked.
+blocked output and normal-exit cleanup are checked. The edge regression failed
+with stuck fire and a stale-position turn before the fix. The optional
+`python3 tests/ghostty_mouse.py` compares physical pointer exit/re-entry against
+commit `b9c556d` on a private Ghostty/Xvfb display: the old version turned 10.55°
+on return, while the fix turned 0° and the physical `m` toggle resumed correctly.
+It does not connect to the operator's display.
+
+[Terminal Doom's input implementation](https://github.com/cryptocode/terminal-doom/blob/35ab605e37e92616417bc901b2762599fc979a72/src/main.zig)
+uses libvaxis pixel positions, relative deltas and a mouse toggle. It also retains
+the previous position and applies acceleration; it does not grab or recenter the
+pointer. Its README explicitly documents terminal capture limits. The toggle
+inspired this frontend's repositioning control; exit/button-state recovery and
+re-entry guards are implemented here without adding Zig/libvaxis dependencies.
 
 ### Keyboard input: real releases and the timing fallback
 

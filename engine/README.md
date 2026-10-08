@@ -52,7 +52,12 @@ blocked output and terminal-mode restoration. `-nomouse` disables mouse reportin
 otherwise the frontend requests all motion in cell coordinates.
 `python3 tests/fire_input.py` checks actual pistol ammunition per tap/hold and the
 negotiated Win32 keyboard path, including physical modifiers and mode cleanup. Terminal window
-edges limit pointer travel, and wheel events are ignored.
+edges limit pointer travel, and wheel events are ignored. `m` pauses/resumes mouse
+control for repositioning. Boundary, resize, idle and large-jump guards clear stale
+anchors; no-button motion recovers missed releases. These guards intentionally
+ignore the first movement after a pause or a large discontinuity.
+`python3 tests/ghostty_mouse.py` optionally compares physical pointer exit/re-entry
+with the previous bundled frontend, using a private Ghostty/Xvfb display.
 `python3 tests/ghostty_input.py` is the optional physical-key comparison under an
 isolated Ghostty/Xvfb display; it also records `media/input-turning.gif`. This optional
 Linux test needs Ghostty, Xvfb, X11/XTest libraries and ffmpeg. Both tests need
@@ -69,8 +74,8 @@ Needs a C compiler and `make`; nothing else. Built here with
 `cc (GCC) 16.2.1 20260810` and `-O2 -static`.
 
 ```text
-sha256  294fa65a423352c6e2d55f7a60f4cc5e76f7cfb0ec3b3a50c72b9ced87759ae0  bin/linux-x86_64/doom
-sha256  6b2a3b2f8b30c5a088344f3cfefbeddf246b43df30eff6e4e0a0e26405598a23  src/doomgeneric_thurbox.c
+sha256  03f35bebbc9ad45c77b7222ddb6b3bfc81d3cb0e22245efd2a9dee16db618423  bin/linux-x86_64/doom
+sha256  09838e09575d30496bb9b10405a51374e75e6c41f0cbb7482c9f93faa292a7ea  src/doomgeneric_thurbox.c
 sha256  e080cf8f95586f39faf328cb17f4c3724cb19a9a42d5302ef11b71086a9defb8  src/terminal_graphics.c
 sha256  08f7379017a253d7e5eac2ecd918ebeb08903b0f1a09a253be6aad16f3ea015f  src/terminal_graphics.h
 ```
