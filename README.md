@@ -77,8 +77,9 @@ emulator:
   stop engine ticks or input polling. Measured against a full-repaint port on the same WAD
   and terminal size: **~11 KB a frame rather than ~53 KB**, about 0.7 MB/s rather
   than 3.7.
-- **It synthesises key releases from timing**, which is what makes held keys usable
-  here at all — see [Held keys](#held-keys-and-why-this-engine-handles-them).
+- **It requests real key releases** using the Kitty keyboard protocol. A standalone
+  modern terminal can distinguish taps from holds; press-only hosts retain the timing
+  fallback — see [Keyboard input](#keyboard-input-real-releases-and-the-timing-fallback).
 
 You are not stuck with it: point `doom.program` at any DOOM that paints text cells
 and reads its keys from stdin, and the pane frames that instead. A relative path
@@ -117,87 +118,80 @@ Or point it at any IWAD you own — `doom.wad`, `doom2.wad`, `plutonia.wad`. A c
 WAD you bought is yours; shipping one would be somebody else's problem, which is why
 neither is here.
 
-### Held keys, the repeat delay, and the one number that matters
+### Keyboard input: real releases and the timing fallback
 
-thurbox **cannot deliver key-release events** — a kernel limitation with two causes, both
-confirmed upstream: the terminal layer asks for `DISAMBIGUATE_ESCAPE_CODES` and never
-`REPORT_EVENT_TYPES`, and the event loop matches `KeyEventKind::Press`. It is recorded there
-as **D12**. So "held" has to be inferred from auto-repeat, and that inference has a trap in
-it worth understanding, because you will feel it before you read this.
+The engine requests [Kitty keyboard protocol](https://sw.kovidgoyal.net/kitty/keyboard-protocol/)
+flags 11: escape disambiguation, event types, and all keys. A reported key stays down
+until its physical release; auto-repeat is not needed to keep it held. Partial input
+sequences survive split reads. Physical aliases such as `w` and Up remain held until
+both release. The terminal's previous keyboard mode is restored on normal game exit.
 
-Two different silences mean opposite things:
-
-```text
-repeat delay     500-660 ms   before the FIRST repeat  (GNOME 500, KDE 600, X11 660)
-repeat interval    25-40 ms   between repeats after it
+```mermaid
+flowchart LR
+  T[Modern terminal] -->|press / repeat / release| E[Standalone engine]
+  E --> R[Hold until physical release]
+  T --> H[Press-only thurbox host]
+  H -->|legacy bytes| F[Timing fallback]
+  F --> L[Long taps and inferred stopping]
 ```
 
-A release window shorter than the delay drops a held key half a second into every press —
-move, stall, move — which reads as lag and is not. A window longer than the delay makes a
-*tap* carry you for its whole length. One number cannot serve both, so the engine uses two:
+The reference thurbox source inspected at `c8fe7d38` requests only escape disambiguation, dispatches Press,
+and encodes keys without event types. Smooth held controls inside that host require
+a separate host change to request and forward repeat/release events to program
+surfaces. A modern outer terminal alone does not bypass this limitation. The host
+checkout and the installed plugin were not changed by this engine fix.
 
-- **before repeats begin on each hold**, the window is `-release` (default **700 ms**);
-- **once repeats arrive**, their interval is measured and the window collapses to twice it
-  (~100 ms), so letting go stops you promptly.
+The reported near-90° turn is expected from the old timing fallback, **not a discrete
+turn binding**: one arrow press stays down for 700 ms and accumulates incremental
+turn ticks. In controlled standalone tests it turned 79.1°. Shortening that timeout
+interrupts holds before auto-repeat starts, so it cannot make both taps and holds
+correct. Real releases remove that ambiguity.
 
-The interval is relearned on every hold. Reusing a previous hold's short interval caused
-later holds to release before their first repeat. A lone tap can therefore remain down
-for 700 ms; movement and use taps during that window may merge. Incoming presses
-are also forwarded as keydown events, so menus and shortcuts respond to another
-press without waiting for the inferred release. Adjacent duplicates buffered in
-one input batch are coalesced; run-modifier repeats do not increment DOOM's shift
-counter. Press-only input cannot distinguish a movement tap from a held key.
-`-release` lets you choose this tradeoff; it does not add a delay before the first
-press reaches the engine. True releases require host event
-dispatch and input-transport changes, as well as terminal support.
+`python3 tests/input_latency.py` runs the real engine in a local PTY with isolated
+configuration and no monsters. It records input, player angle, simulation ticks,
+draw calls, and changing output frames. Before modern-event support, the modern
+press/release cases fail because those sequences are ignored. After the fix, one
+50 ms tap turned 3.52° and released in 27 ms; a 900 ms hold without repeats stayed
+down, and a longer hold with repeats had a maximum turning-tick gap of 31 ms.
+Engine draw calls averaged 14.30 ms apart; changing output frames averaged 30.82 ms,
+with an 85 ms maximum gap in that run. Draw calls and changing cells are different
+cadences: identical cells are omitted, and DOOM's simulation advances at 35 Hz.
+These measurements exclude the user's display presentation and SSH path.
 
-`engine/src/release_test.c` checks timing with a fake clock (`cd engine/src && make test`).
-`python3 tests/input_latency.py` runs the real engine in a separate pseudo-terminal and
-records events at its input boundary and simulation ticks. Controlled standalone
-runs on Linux at 100×40 cells gave these measurements (single runs, not a latency
-benchmark distribution):
+An optional physical-key test, `python3 tests/ghostty_input.py`, runs Ghostty and
+Xvfb on a separate virtual display, with repeat disabled there. It requires Linux,
+Ghostty, Xvfb, X11/XTest libraries and ffmpeg. Ghostty **1.3.1-arch2 (tip build)**
+was exercised: the same 50 ms physical arrow tap turned 79.1° with the original
+engine and 3.52° with the fix, with physical release received in 9–11 ms. A 900 ms
+hold continued until physical key-up; the original stopped turning near 700 ms.
+The script records the comparison below and removes its temporary terminal/display.
 
-| Scenario | Original frontend | Fixed frontend |
+![The same short arrow tap in Ghostty: original versus modern release handling](media/input-turning.gif)
+
+Other engine failures were reproduced separately before fixing:
+
+| Controlled scenario | Original frontend | Fixed frontend |
 |---|---|---|
-| First movement, draining output | 14 ms | 14 ms |
 | Second hold, 600 ms initial repeat delay | releases early | stays down |
-| Two Esc taps 150 ms apart | second press discarded | second menu action in 4 ms |
+| Two Esc taps 150 ms apart | second press discarded | both menu actions arrive |
 | Fire during a 350 ms output stall | arrives at 353 ms after reading resumes | 12 ms |
 | Simulation during the same output stall | 0 ticks | 12 ticks |
 | Tab behind 1024 buffered repeat bytes | 109 ms | 28 ms |
 
-A separate fixed run at 155×40 cells also passed, delivering fire during the stall
-in 1 ms while simulation ran 13 ticks. The regression checks resumed output,
-resize during a pending frame, and balanced run-modifier transitions too.
+These are single-run measurements at 100×40 cells. A separate fixed 155×40 run
+passed too. The operator reproduced similar lag over SSH in thurbox and standalone,
+then locally without SSH using Windows Terminal and Ghostty. Thus SSH and thurbox
+are not required to reproduce the engine symptoms. The operator's terminal versions
+and Windows Terminal behavior with this fix remain unverified; no SSH delay is
+inferred from these reports. Actual manual play still needs the operator's validation.
 
-The operator reported similar lag in thurbox and when running the bundled engine
-standalone; both sessions used SSH. That comparison removes thurbox while retaining
-SSH, terminal input, and engine handling. The controlled regression runs standalone
-over a local PTY with a specified 600 ms repeat delay and 40 ms repeat interval;
-it reproduces engine failures without SSH and does not measure the operator's
-transport. The terminal application is unspecified. These are engine-side
-measurements, excluding host dispatch, terminal/SSH latency and screen presentation.
-DOOM simulates at 35 ticks per second; the reference host source
-paces output paints at 33 ms and input paints at 16 ms. Frame presentation can lag even
-when input is already reaching the engine. Startup screen wipes also run without normal
-input polling. Neither terminal release support nor live gameplay was verified by this
-test.
-
-**If holding still feels wrong**, the honest fix is fewer milliseconds of guessing: shorten
-your desktop's repeat delay, which helps every terminal program you use.
-
-```bash
-# KDE
-kwriteconfig6 --file kcminputrc --group Keyboard --key RepeatDelay 200 && qdbus org.kde.KWin /KWin reconfigure
-# GNOME
-gsettings set org.gnome.desktop.peripherals.keyboard delay 200
-# X11
-xset r rate 200 30
-```
-
-With a 200 ms delay you can also drop `-release` to `250` in `doom.args` and stopping gets
-sharper still. And if you point `program` at some other DOOM, ask whether it waits for real
-releases: one that does will latch every key here, and no setting fixes that.
+For press-only input the compatibility fallback remains: `-release` defaults to
+700 ms on each hold, then shrinks to twice the learned repeat interval plus 20 ms
+(with a 60 ms floor). Movement/use taps may merge; separately received presses still
+reach menus and shortcuts. `make -C engine/src test` checks this fallback against a
+fake clock. Startup screen wipes still suspend ordinary input polling; terminal
+presentation can also lag behind engine state. Use a terminal/path that delivers
+real releases for precise taps and continuous holds.
 
 ### Retracted: `tab` works
 

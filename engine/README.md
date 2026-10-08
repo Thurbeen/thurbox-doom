@@ -38,9 +38,14 @@ behaviour — that a held key survives a stock repeat delay, that the window col
 the repeat rate is known, that a tap does not stick, and that `-release` still overrides.
 The timing test needs no doomgeneric objects. From the repository root,
 `python3 tests/input_latency.py` builds and runs the real engine in an isolated PTY,
-checking input and simulation ticks during output backpressure, repeat delay on
-a second hold, quick menu presses, and resumed rendering after resize. It requires Python 3 on a POSIX system and removes
-its scratch files when it exits.
+checking input and simulation ticks during output backpressure, tap-turn angle,
+real press/repeat/release events, held-turn continuity, frame cadence, split reads,
+aliases, terminal-mode restoration, and resumed rendering after resize.
+`python3 tests/ghostty_input.py` is the optional physical-key comparison under an
+isolated Ghostty/Xvfb display; it also records `media/input-turning.gif`. This optional
+Linux test needs Ghostty, Xvfb, X11/XTest libraries and ffmpeg. Both tests need
+Python 3 and remove their temporary directories on exit; comparison clips remain
+in the ignored engine build directory.
 
 ## Rebuilding it
 
@@ -52,8 +57,8 @@ Needs a C compiler and `make`; nothing else. Built here with
 `cc (GCC) 16.2.1 20260810` and `-O2 -static`.
 
 ```text
-sha256  f28ad095cef2dbc82c64b15ac4c6baccecd71954dc5cd279d4d0bc27f67b29cf  bin/linux-x86_64/doom
-sha256  8d11eb5e9faa815b2d0d0ff25798d7459de064e02cf522eb7ecc1dcaf6bb0021  src/doomgeneric_thurbox.c
+sha256  eef0ea3eeeff551be3925f78a45fb3cae268fd7b2f3e9cfcf750c002c3669d09  bin/linux-x86_64/doom
+sha256  c02916d1219a6d2b08cb3f35f69c4150f8abd57f9fcdd91dd5728c4face5d49f  src/doomgeneric_thurbox.c
 ```
 
 A rebuild will not match that hash byte for byte — a different compiler version or
@@ -88,10 +93,8 @@ Three things worth knowing, all in `src/doomgeneric_thurbox.c`:
   than blocking game ticks. Measured against a full-repaint port on
   the same WAD and terminal size: **~11 KB a frame instead of ~53 KB**, about
   0.7 MB/s instead of 3.7.
-- **It synthesises key releases from timing.** thurbox cannot deliver them — its
-  terminal layer never asks for `REPORT_EVENT_TYPES` and its loop matches on
-  press — so a port that waits for a release latches every held key. Here a key is
-  initially held for `-release <ms>` (default 700) on each hold. Once repeats
-  arrive, their interval is learned and the silence window shrinks to twice that
-  interval plus 20 ms, with a 60 ms floor. A tap without repeats can last the full
-  initial window; shortening it requires a matching shorter terminal repeat delay.
+- **It requests real key releases** with Kitty keyboard flags 11, and keeps a
+  reported key down until its release, independent of repeat delay. A press-only
+  host must be changed to forward those events. Timing inference is retained only
+  for a legacy byte stream; its 700 ms initial timeout can turn a lone arrow tap
+  through 79.1° and cannot distinguish that tap from a hold.
