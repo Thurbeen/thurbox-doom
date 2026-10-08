@@ -25,4 +25,5 @@ cleanup() {
 trap cleanup EXIT
 make -C engine/src test
 python3 tests/input_latency.py
+python3 tests/graphics_output.py
 bash tests/smoke.sh

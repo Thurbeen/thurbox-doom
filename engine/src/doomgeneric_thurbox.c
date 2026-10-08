@@ -4,12 +4,10 @@
 // Licensed under the GNU General Public License v2, like the doomgeneric and
 // DOOM sources it is linked with. See LICENSE beside this file.
 //
-// It paints CELLS, because that is what a thurbox `surface` carries: the kernel
-// runs this in a real terminal, parses its output with a vt100 parser and copies
-// the resulting grid into the pane's rect. A terminal graphics protocol would
-// have nothing to be parsed into, so every frame here is text — one `▀` per
-// cell, the top pixel in the foreground colour and the bottom in the background,
-// which is two vertical pixels per character.
+// A thurbox surface carries text cells. Standalone terminals can explicitly
+// report Kitty graphics or Sixel support, in which case the full framebuffer is
+// rendered as pixels. Otherwise use one RGB-coloured upper half block per cell,
+// with two vertical samples per character. Pixel renderers live in terminal_graphics.c.
 //
 // Three things in here are decisions rather than plumbing:
 //
@@ -34,6 +32,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -45,10 +44,9 @@
 
 #include "doomgeneric.h"
 #include "doomkeys.h"
+#include "terminal_graphics.h"
 #include "m_argv.h"
 
-#define MAX_COLS 512
-#define MAX_ROWS 256
 #define EVENT_QUEUE 64
 // How long a lone press keeps a key down, before any auto-repeat has been seen for
 // that key.
@@ -76,18 +74,23 @@ static struct termios entry_termios;
 static int termios_saved = 0;
 
 static int cols = 0, rows = 0;
+static int pixel_width = DOOMGENERIC_RESX, pixel_height = DOOMGENERIC_RESY;
+static enum graphics_mode graphics = GRAPHICS_CELLS;
+static int force_cells = 0;
 static volatile sig_atomic_t resized = 1;
 
 static struct cell *shadow = NULL; // what the terminal is already showing
 static size_t shadow_cells = 0;
 static int shadow_valid = 0;
 
-static int col_of[MAX_COLS];      // cell column -> source x
-static int row_of[MAX_ROWS * 2];  // pixel row   -> source y
+static int *col_of;      // cell column -> source x
+static int *row_of;  // pixel row   -> source y
 
 static char *out = NULL;
 static size_t out_size = 0;
 static size_t out_sent = 0, out_length = 0;
+static pixel_t image_shadow[DOOMGENERIC_RESX * DOOMGENERIC_RESY];
+static int image_valid, image_width, image_height;
 
 static struct event queue[EVENT_QUEUE];
 static int queue_head = 0, queue_tail = 0;
@@ -108,6 +111,7 @@ static uint16_t physical_key[136]; // DOOM key + 1; zero means released
 static unsigned char physical_count[256];
 static char input_sequence[64];
 static size_t input_length = 0;
+static int input_string = 0, string_escape = 0, string_overflow = 0;
 static uint32_t escape_seen = 0;
 static uint32_t hold_ms = DEFAULT_RELEASE_MS;
 
@@ -125,7 +129,7 @@ static void restore_terminal(void)
 	}
 	// Colours off, cursor back, and a clear so the pane is not left holding
 	// half a frame.
-	const char *bye = "\033[<u\033[0m\033[?25h\033[2J\033[H";
+	const char *bye = "\033_Ga=d,d=I,i=32,q=2;\033\\\033[?80r\033[<u\033[0m\033[?25h\033[2J\033[H";
 	ssize_t ignored = write(STDOUT_FILENO, bye, strlen(bye));
 	(void)ignored;
 }
@@ -164,13 +168,18 @@ static void measure(void)
 	if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0 && ws.ws_col > 0 && ws.ws_row > 0) {
 		width = ws.ws_col;
 		height = ws.ws_row;
+		if (ws.ws_xpixel && ws.ws_ypixel) {
+			pixel_width = ws.ws_xpixel;
+			pixel_height = ws.ws_ypixel;
+		}
 	}
-	if (width > MAX_COLS)
-		width = MAX_COLS;
-	if (height > MAX_ROWS)
-		height = MAX_ROWS;
 	cols = width;
 	rows = height;
+	int *columns = realloc(col_of, (size_t)cols * sizeof(*col_of));
+	int *lines = realloc(row_of, (size_t)rows * 2 * sizeof(*row_of));
+	if (!columns || !lines) die("out of memory for scaling maps");
+	col_of = columns;
+	row_of = lines;
 
 	for (int x = 0; x < cols; x++)
 		col_of[x] = (int)((long)x * DOOMGENERIC_RESX / cols);
@@ -237,6 +246,18 @@ void DG_DrawFrame(void)
 	if (!shadow || cols <= 0 || rows <= 0)
 		return;
 
+	if (graphics != GRAPHICS_CELLS) {
+		if (!clear && image_valid && image_width == pixel_width && image_height == pixel_height &&
+		    memcmp(image_shadow, DG_ScreenBuffer, sizeof(image_shadow)) == 0)
+			return;
+		memcpy(image_shadow, DG_ScreenBuffer, sizeof(image_shadow));
+		image_valid = 1;
+		image_width = pixel_width; image_height = pixel_height;
+		out_length = terminal_image(graphics, DG_ScreenBuffer, cols, rows,
+		                            pixel_width, pixel_height, clear, &out, &out_size);
+		flush_frame();
+		return;
+	}
 	const pixel_t *screen = DG_ScreenBuffer;
 	char *at = out;
 	// Synchronised output, so a partially-written frame is never painted. The
@@ -319,10 +340,25 @@ uint32_t DG_GetTicksMs(void)
 
 void DG_SleepMs(uint32_t ms)
 {
-	struct timespec want;
-	want.tv_sec = ms / 1000;
-	want.tv_nsec = (long)(ms % 1000) * 1000000L;
-	nanosleep(&want, NULL);
+	// A partial frame must not wait another game-loop sleep for each PTY
+	// bufferful. Use idle time to finish it as soon as the reader makes room,
+	// while preserving the original sleep deadline and nonblocking writes.
+	uint32_t start = DG_GetTicksMs();
+	for (;;) {
+		uint32_t elapsed = DG_GetTicksMs() - start;
+		if (elapsed >= ms)
+			return;
+		struct pollfd output = {STDOUT_FILENO, POLLOUT, 0};
+		int pending = out_sent < out_length;
+		int ready = poll(&output, pending ? 1 : 0, (int)(ms - elapsed));
+		if (ready > 0) {
+			if (!(output.revents & POLLOUT))
+				return;
+			flush_frame();
+		} else if (ready == 0 || errno != EINTR) {
+			return;
+		}
+	}
 }
 
 // --- input -----------------------------------------------------------------
@@ -464,11 +500,14 @@ static int key_for_byte(unsigned char c)
 	return -1;
 }
 
+static void terminal_key(unsigned char key, int type, int reported, int identity);
+
 static void map_byte(unsigned char c)
 {
 	int key = key_for_byte(c);
 	if (key >= 0)
-		press((unsigned char)key);
+		terminal_key((unsigned char)key, 1, keyboard_events,
+		             c >= 'A' && c <= 'Z' ? c + ('a' - 'A') : c);
 }
 
 // Kitty keyboard protocol: event types 1/2/3 are press/repeat/release.
@@ -509,6 +548,27 @@ static void decode_sequence(void)
 	char final = input_sequence[input_length - 1];
 	input_sequence[input_length - 1] = '\0';
 	char *parameters = input_sequence + 2;
+	if (!force_cells && final == 'c' && *parameters == '?') {
+		for (char *p = parameters + 1; *p;) {
+			char *end;
+			unsigned long attribute = strtoul(p, &end, 10);
+			if (end == p || (*end && *end != ';')) return;
+			if (attribute == 4 && graphics != GRAPHICS_KITTY) {
+				graphics = GRAPHICS_SIXEL;
+				resized = 1;
+			}
+			p = *end ? end + 1 : end;
+		}
+		return;
+	}
+	if (final == 't') {
+		unsigned h, w; int consumed = 0;
+		if (sscanf(parameters, "4;%u;%u%n", &h, &w, &consumed) == 2 &&
+		    parameters[consumed] == '\0' && w && h && w <= 16384 && h <= 16384) {
+			pixel_width = (int)w; pixel_height = (int)h;
+		}
+		return;
+	}
 	if (input_sequence[1] == '[' && *parameters == '?' && final == 'u') {
 		char *end;
 		unsigned long flags = strtoul(parameters + 1, &end, 10);
@@ -557,7 +617,7 @@ static void decode_sequence(void)
 			return;
 		if (code < 128) {
 			key = key_for_byte((unsigned char)code);
-			identity = (int)code;
+			identity = code >= 'A' && code <= 'Z' ? (int)code + ('a' - 'A') : (int)code;
 		}
 		// Bare modifiers are available when all keys are reported.
 		else if (code == 57441 || code == 57447) {
@@ -583,6 +643,30 @@ static void read_input(void)
 	ssize_t n = read(STDIN_FILENO, buffer, sizeof(buffer));
 	for (ssize_t i = 0; i < n; i++) {
 		unsigned char c = buffer[i];
+		if (input_string) {
+			if (input_length < sizeof(input_sequence) - 1)
+				input_sequence[input_length++] = (char)c;
+			else
+				string_overflow = 1;
+			if (string_escape && c == '\\') {
+				if (!string_overflow) {
+					input_sequence[input_length - 2] = '\0';
+					if (!force_cells && strcmp(input_sequence, "\033_Gi=31;OK") == 0) {
+						graphics = GRAPHICS_KITTY;
+						resized = 1;
+					}
+				}
+				input_string = input_length = string_escape = string_overflow = 0;
+			} else {
+				string_escape = c == 033;
+			}
+			continue;
+		}
+		if (input_length == 1 && c == '_') {
+			input_sequence[input_length++] = (char)c;
+			input_string = 1;
+			continue;
+		}
 		if (input_length == 1 && c != '[' && c != 'O') {
 			press(KEY_ESCAPE);
 			input_length = 0;
@@ -671,7 +755,8 @@ void DG_Init(void)
 	signal(SIGWINCH, on_winch);
 	// ISIG is off, so ctrl+c arrives as a byte rather than a signal; DOOM's own
 	// menu is the way out, and the pane's own chord releases it.
-	const char *hello = "\033[?25l\033[2J\033[>11u\033[?u";
+	const char *hello = "\033[?25l\033[2J\033[>11u\033[?u"
+	                    "\033_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\033\\\033[c\033[14t";
 	ssize_t ignored = write(STDOUT_FILENO, hello, strlen(hello));
 	(void)ignored;
 	int flags = fcntl(STDOUT_FILENO, F_GETFL);
@@ -685,6 +770,7 @@ int main(int argc, char **argv)
 	// Our own arguments are read before doomgeneric sees them; it ignores what
 	// it does not know, so they are simply passed through.
 	for (int i = 1; i < argc; i++) {
+		if (strcmp(argv[i], "-cells") == 0) force_cells = 1;
 		// `-release <ms>`: how long a lone press holds a key down. Raise it above
 		// your terminal's repeat delay if holding a direction still stutters; lower
 		// it if a tap carries you too far. Once repeats are seen the window adapts

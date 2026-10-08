@@ -57,6 +57,26 @@ void __wrap_G_Ticker(void)
 void __real_DG_DrawFrame(void);
 void __wrap_DG_DrawFrame(void)
 {
+    // Optional pixel hashes let the PTY graphics decoder compare the actual
+    // emitted image with a frame produced by the real engine.
+    const char *pixel_path = getenv("DOOM_PIXEL_TRACE");
+    if (pixel_path) {
+        static FILE *pixels;
+        if (!pixels) {
+            pixels = fopen(pixel_path, "w");
+            if (!pixels) abort();
+            setvbuf(pixels, NULL, _IONBF, 0);
+        }
+        uint32_t rgb = 2166136261u, percent = rgb;
+        for (int i = 0; i < DOOMGENERIC_RESX * DOOMGENERIC_RESY; i++) {
+            for (int shift = 16; shift >= 0; shift -= 8) {
+                unsigned byte = (DG_ScreenBuffer[i] >> shift) & 255;
+                rgb = (rgb ^ byte) * 16777619u;
+                percent = (percent ^ (byte * 100 / 255 * 255 / 100)) * 16777619u;
+            }
+        }
+        fprintf(pixels, "%u %u\n", rgb, percent);
+    }
     static FILE *frames;
     if (!frames) {
         frames = fopen(getenv("DOOM_FRAME_TRACE"), "w");

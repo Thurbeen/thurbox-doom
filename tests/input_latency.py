@@ -255,6 +255,38 @@ def run():
                   f"engine frame cadence: {len(drawn)} draws; "
                   f"mean {sum(cadence)/len(cadence) if cadence else 0:.2f} ms; "
                   f"max {max(cadence, default=0)} ms")
+            # A modern terminal can have a substantially larger fullscreen
+            # surface than the resized 80x24 case above. Measure delivered frames,
+            # not only calls that return without completing pending output.
+            fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 60, 200, 0, 0))
+            proc.send_signal(signal.SIGWINCH)
+            resize_offset = len(output)
+            wait(0.3)
+            repaints = re.findall(rb"\x1b\[\?2026h(.*?)\x1b\[\?2026l",
+                                  output[resize_offset:], re.DOTALL)
+            full_frames = [f for f in repaints if b"\x1b[2J" in f]
+            check(any(f.count("▀".encode()) == 200 * 60 for f in full_frames),
+                  "resize uses all 200x60 cells at 200x120 text-pixel resolution")
+            start = ticks()
+            os.write(master, b"\x1b[1;1:1C")
+            wait(1.5)
+            released_at = ticks()
+            os.write(master, b"\x1b[1;1:3C")
+            wait(0.15)
+            frames = [t for t in frame_times if start + 200 <= t <= released_at]
+            intervals = [b - a for a, b in zip(frames, frames[1:])]
+            mean = sum(intervals) / len(intervals) if intervals else 1000
+            check(len(frames) >= 25 and mean < 50 and max(intervals, default=1000) < 120,
+                  f"large 200x60 surface: {len(frames)} changing frames; "
+                  f"mean {mean:.2f} ms; max {max(intervals, default=0)} ms")
+            resize_offset = len(output)
+            fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 600, 0, 0))
+            proc.send_signal(signal.SIGWINCH)
+            wait(0.4)
+            repaints = re.findall(rb"\x1b\[\?2026h(.*?)\x1b\[\?2026l",
+                                  output[resize_offset:], re.DOTALL)
+            check(any(b"\x1b[2J" in f and f.count("▀".encode()) == 600 * 24 for f in repaints),
+                  "wide terminal uses every column beyond the old 512-column cap")
             start = ticks()
             os.write(master, b"\x1b[" + b"1" * 100 + b"u\x1b[?1;2C")
             wait(0.1)
@@ -271,6 +303,16 @@ def run():
             wait(0.08)
             ups = [e for e in events() if e[0] >= start and e[1:] == (0, 0xad)]
             check(len(ups) == 1, "aliased movement releases once the last physical key comes up")
+            # Event reporting can be supported without the all-keys flag:
+            # ordinary letter presses then remain plain UTF-8, but release is CSI.
+            os.write(master, b"\x1b[?3u")
+            start = ticks()
+            os.write(master, b"w")
+            wait(0.9)
+            premature = [e for e in events() if e[0] >= start and e[1:] == (0, 0xad)]
+            check(not premature, "negotiated event reporting keeps a plain letter held until release")
+            os.write(master, b"\x1b[119;1:3u\x1b[?11u")
+            wait(0.1)
             start = ticks()
             for part in [b"\x1b[", b"113;1:", b"1u"]:
                 os.write(master, part)
