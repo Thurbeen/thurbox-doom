@@ -34,30 +34,46 @@ def run():
         trace = Path(scratch) / "events"
         menu_trace = Path(scratch) / "menu"
         tick_trace = Path(scratch) / "ticks"
+        frame_trace = Path(scratch) / "frames"
         subprocess.run(["cc", "-O2", "-I" + str(ROOT / "engine/src"),
                         str(ROOT / "tests/input_trace.c"), *objects,
-                        "-Wl,--wrap=DG_GetKey", "-Wl,--wrap=M_Responder", "-Wl,--wrap=G_Ticker", "-lm", "-o", str(binary)], check=True)
+                        "-Wl,--wrap=DG_GetKey", "-Wl,--wrap=M_Responder", "-Wl,--wrap=G_Ticker", "-Wl,--wrap=DG_DrawFrame", "-lm", "-o", str(binary)], check=True)
         master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 100, 0, 0))
         env = dict(os.environ, DOOM_INPUT_TRACE=str(trace),
-                   DOOM_MENU_TRACE=str(menu_trace), DOOM_TICK_TRACE=str(tick_trace))
+                   DOOM_MENU_TRACE=str(menu_trace), DOOM_TICK_TRACE=str(tick_trace),
+                   DOOM_FRAME_TRACE=str(frame_trace))
         proc = subprocess.Popen([str(binary), "-iwad", str(ROOT / "wad/doom1.wad"),
-                                 "-warp", "1", "1", "-config", str(Path(scratch) / "config")],
+                                 "-warp", "1", "1", "-nomonsters", "-config", str(Path(scratch) / "config")],
                                 stdin=slave, stdout=slave, stderr=slave, cwd=scratch, env=env)
         os.close(slave)
         failures = []
         output = bytearray()
+        frame_times = []
+        frame_end = 0
 
         def events():
             if not trace.exists():
                 return []
             return [tuple(map(int, line.split())) for line in trace.read_text().splitlines()]
 
+        def samples():
+            return [tuple(map(int, line.split())) for line in tick_trace.read_text().splitlines()]
+
         def wait(seconds, drain=True):
+            nonlocal frame_end
             end = time.monotonic() + seconds
             while time.monotonic() < end:
                 if drain and select.select([master], [], [], 0.002)[0]:
                     output.extend(os.read(master, 65536))
+                    while True:
+                        finish = output.find(b"\x1b[?2026l", frame_end)
+                        if finish < 0:
+                            break
+                        finish += 8
+                        if finish - frame_end > 16:
+                            frame_times.append(ticks())
+                        frame_end = finish
                 else:
                     time.sleep(0.002)
                 if proc.poll() is not None:
@@ -104,8 +120,7 @@ def run():
             start = ticks()
             os.write(master, b"f")
             wait(0.35, drain=False)
-            stalled_ticks = [int(line) for line in tick_trace.read_text().splitlines()
-                             if int(line) >= start]
+            stalled_ticks = [row for row in samples() if row[0] >= start]
             check(len(stalled_ticks) >= 5,
                   f"simulation continues during 350 ms output stall: {len(stalled_ticks)} ticks")
             fire = [e for e in events() if e[0] >= start and e[1:] == (1, 0xa3)]
@@ -153,6 +168,138 @@ def run():
             wait(0.18)
             shift = [e[1] for e in events() if e[0] >= start and e[2] == 0xb6]
             check(shift == [1, 0], "repeated run modifier has one down and one up")
+            os.write(master, b"\t")  # close the automap opened by the backlog check
+            wait(0.15)
+            # Physical tap/release is intentionally represented by a single
+            # legacy arrow sequence: that terminal has no release event.
+            before = samples()[-1][1]
+            start = ticks()
+            os.write(master, b"\x1b[C")
+            wait(0.85)
+            after = samples()[-1][1]
+            angle = ((before - after) & 0xffffffff) * 360 / 2**32
+            up = [e[0] - start for e in events() if e[0] >= start and e[1:] == (0, 0xae)]
+            print(f"legacy-only arrow tap turns {angle:.2f} degrees; synthetic release {up} ms", flush=True)
+
+            start = ticks()
+            os.write(master, b"\x1b[C")
+            wait(0.6)
+            for _ in range(15):
+                os.write(master, b"\x1b[C")
+                wait(0.04)
+            last = ticks()
+            before_release = samples()[-1][1]
+            wait(0.2)
+            turned = [row for row, prev in zip(samples()[1:], samples()[:-1])
+                      if start <= row[0] <= last and row[1] != prev[1]]
+            gaps = [b[0] - a[0] for a, b in zip(turned, turned[1:])]
+            repeat_gaps = [b[0] - a[0] for a, b in zip(turned, turned[1:])
+                           if a[0] >= start + 650]
+            tail_angle = ((before_release - samples()[-1][1]) & 0xffffffff) * 360 / 2**32
+            frames = [t for t in frame_times if start + 650 <= t <= last]
+            intervals = [b - a for a, b in zip(frames, frames[1:])]
+            print(f"held turning: maximum tick gap {max(gaps, default=0)} ms; "
+                  f"repeat-phase maximum {max(repeat_gaps, default=0)} ms; "
+                  f"turn after last repeat {tail_angle:.2f} degrees", flush=True)
+            print(f"changing frames during turning: {len(frames)} in {last-start-650} ms; "
+                  f"mean interval {sum(intervals)/len(intervals) if intervals else 0:.2f} ms; "
+                  f"maximum interval {max(intervals, default=0)} ms", flush=True)
+            check(bool(repeat_gaps) and max(repeat_gaps) < 100,
+                  "held turning is continuous after repeats begin")
+            check(b"\x1b[>11u" in output, "standalone requests modern keyboard event reporting")
+            # Emulate the modern terminal's response, then physical press and
+            # release. These are protocol bytes, not replacements for engine logic.
+            os.write(master, b"\x1b[?11u")
+            wait(0.05)
+            before = samples()[-1][1]
+            start = ticks()
+            os.write(master, b"\x1b[1;1:1C")
+            wait(0.05)
+            released_at = ticks()
+            os.write(master, b"\x1b[1;1:3C")
+            wait(0.15)
+            angle = ((before - samples()[-1][1]) & 0xffffffff) * 360 / 2**32
+            turn_events = [e for e in events() if e[0] >= start and e[2] == 0xae]
+            release_latency = turn_events[-1][0] - released_at if turn_events else None
+            check([e[1] for e in turn_events] == [1, 0] and angle <= 12
+                  and release_latency is not None and release_latency < 60,
+                  f"modern 50 ms arrow tap: {angle:.2f} degrees; release {release_latency} ms")
+            start = ticks()
+            os.write(master, b"\x1b[1;1:1C")
+            wait(0.9)  # no repeats: a real hold must not expire at 700 ms
+            for _ in range(15):
+                os.write(master, b"\x1b[1;1:2C")
+                wait(0.04)
+            released_at = ticks()
+            os.write(master, b"\x1b[1;1:3C")
+            wait(0.12)
+            rows = samples()
+            turning = [row for row, prev in zip(rows[1:], rows[:-1])
+                       if start <= row[0] <= released_at and row[1] != prev[1]]
+            gaps = [b[0] - a[0] for a, b in zip(turning, turning[1:])]
+            ups = [e[0] for e in events() if e[0] >= start and e[1:] == (0, 0xae)]
+            check(len(turning) >= 40 and max(gaps, default=1000) < 70
+                  and len(ups) == 1 and released_at <= ups[0] < released_at + 60,
+                  f"modern hold: {len(turning)} turning ticks; max gap {max(gaps, default=0)} ms; "
+                  f"release {ups[0]-released_at if ups else None} ms")
+            frames = [t for t in frame_times if start + 200 <= t <= released_at]
+            intervals = [b - a for a, b in zip(frames, frames[1:])]
+            print(f"modern changing frames: {len(frames)} over {released_at-start-200} ms; "
+                  f"mean {sum(intervals)/len(intervals) if intervals else 0:.2f} ms; "
+                  f"max {max(intervals, default=0)} ms", flush=True)
+            check(len(frames) >= 30, "modern continuous turning produces changing frames")
+            drawn = [int(line.split()[0]) for line in frame_trace.read_text().splitlines()
+                     if start + 200 <= int(line.split()[0]) <= released_at]
+            cadence = [b - a for a, b in zip(drawn, drawn[1:])]
+            check(len(drawn) >= 35 and max(cadence, default=1000) < 100,
+                  f"engine frame cadence: {len(drawn)} draws; "
+                  f"mean {sum(cadence)/len(cadence) if cadence else 0:.2f} ms; "
+                  f"max {max(cadence, default=0)} ms")
+            start = ticks()
+            os.write(master, b"\x1b[" + b"1" * 100 + b"u\x1b[?1;2C")
+            wait(0.1)
+            unwanted = [e for e in events() if e[0] >= start and e[1] == 1]
+            check(not unwanted, "oversized and unknown terminal reports do not become game keys")
+            start = ticks()
+            os.write(master, b"\x1b[119;1:1u\x1b[1;1:1A")  # w and Up alias the same DOOM key
+            wait(0.08)
+            os.write(master, b"\x1b[119;1:3u")
+            wait(0.15)
+            early_ups = [e for e in events() if e[0] >= start and e[1:] == (0, 0xad)]
+            check(not early_ups, "releasing w preserves a simultaneously held Up arrow")
+            os.write(master, b"\x1b[1;1:3A")
+            wait(0.08)
+            ups = [e for e in events() if e[0] >= start and e[1:] == (0, 0xad)]
+            check(len(ups) == 1, "aliased movement releases once the last physical key comes up")
+            start = ticks()
+            for part in [b"\x1b[", b"113;1:", b"1u"]:
+                os.write(master, part)
+                wait(0.04)
+            os.write(master, b"\x1b[113;1:3u")
+            wait(0.08)
+            left = [e[1] for e in events() if e[0] >= start and e[2] == 0xac]
+            check(left == [1, 0], "modern letter press/release survives split PTY reads")
+            # Leave through DOOM's own menu so its atexit handler must restore
+            # the terminal keyboard mode, rather than relying on PTY teardown.
+            for press_code, release_code in [(b"27;1:1u", b"27;1:3u"),
+                                             (b"1;1:1A", b"1;1:3A"),
+                                             (b"13;1:1u", b"13;1:3u")]:
+                os.write(master, b"\x1b[" + press_code)
+                wait(0.05)
+                os.write(master, b"\x1b[" + release_code)
+                wait(0.05)
+            os.write(master, b"\x1b[121;1:1u")
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline:
+                if select.select([master], [], [], 0.02)[0]:
+                    try:
+                        output.extend(os.read(master, 65536))
+                    except OSError:
+                        break
+                elif proc.poll() is not None:
+                    break
+            check(proc.wait(timeout=2) == 0 and b"\x1b[<u" in output,
+                  "normal game exit restores the terminal keyboard mode")
         finally:
             proc.terminate()
             try:

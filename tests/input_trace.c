@@ -6,6 +6,8 @@
 #include "doomgeneric.h"
 #include "d_event.h"
 #include "doomkeys.h"
+#include "doomstat.h"
+#include "p_mobj.h"
 
 int __real_DG_GetKey(int *pressed, unsigned char *key);
 int __wrap_DG_GetKey(int *pressed, unsigned char *key)
@@ -48,5 +50,20 @@ void __wrap_G_Ticker(void)
         setvbuf(ticks, NULL, _IONBF, 0);
     }
     __real_G_Ticker();
-    fprintf(ticks, "%u\n", DG_GetTicksMs());
+    fprintf(ticks, "%u %u\n", DG_GetTicksMs(),
+            players[consoleplayer].mo ? players[consoleplayer].mo->angle : 0u);
+}
+
+void __real_DG_DrawFrame(void);
+void __wrap_DG_DrawFrame(void)
+{
+    static FILE *frames;
+    if (!frames) {
+        frames = fopen(getenv("DOOM_FRAME_TRACE"), "w");
+        if (!frames) abort();
+        setvbuf(frames, NULL, _IONBF, 0);
+    }
+    uint32_t start = DG_GetTicksMs();
+    __real_DG_DrawFrame();
+    fprintf(frames, "%u %u\n", start, DG_GetTicksMs());
 }

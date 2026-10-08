@@ -18,19 +18,16 @@
 //     colours changed are emitted, in runs, so a menu costs almost nothing and a
 //     firefight costs what it has to.
 //
-//   * KEY RELEASE BY TIMING, ADAPTIVELY. thurbox cannot deliver key-release
-//     events: its terminal layer asks for `DISAMBIGUATE_ESCAPE_CODES` and never
-//     `REPORT_EVENT_TYPES`, and its event loop matches on press. A port that waits
-//     for a release therefore latches every held key. So "held" is inferred from
-//     auto-repeat, and the window has to straddle two different silences: the
-//     repeat DELAY before the first repeat (long, ~600 ms on a stock KDE or GNOME
-//     desktop) and the repeat INTERVAL after it (short, ~25-40 ms). One fixed
-//     number cannot serve both — 90 ms lost every held key for half a second, and
-//     600 ms would make a tap carry you across a room. So the window starts at
-//     `-release` (700 ms) on each hold and collapses to twice the measured
-//     interval as soon as repeats arrive.
+//   * REAL KEY RELEASES. Request Kitty keyboard flags 11 (disambiguation,
+//     event types and all keys). Reported holds last until their release,
+//     independent of desktop repeat delay. Keep partial sequences across reads.
+//     A thurbox host must also request and forward release events; a modern
+//     outer terminal alone cannot make them cross a press-only host.
 //
-//     Real releases also require host dispatch and transport support.
+//     Timing inference remains a compatibility fallback for a press-only
+//     stream. Its 700 ms initial window bridges repeat delay but makes a tap
+//     keep turning; once repeats arrive it shrinks to their measured interval.
+//     No timeout can distinguish a tap from a hold before the first repeat.
 //
 //   * NEAREST-NEIGHBOUR SCALING to the terminal's size, recomputed on SIGWINCH,
 //     because the pane is resized by the kernel whenever the layout changes.
@@ -96,13 +93,22 @@ static struct event queue[EVENT_QUEUE];
 static int queue_head = 0, queue_tail = 0;
 
 // Last time each DOOM key was seen pressed, and whether we have told DOOM it is
-// down. The release is synthesised from these; see the note at the top.
+// down. For unreported holds the release is synthesised from these.
 static uint32_t key_seen[256];
 // The auto-repeat interval measured for this key, or 0 while unknown. Learned rather
 // than assumed: the rate is the user's setting, and once it is known the release
 // window can be tight instead of conservative.
 static uint32_t key_gap[256];
 static unsigned char key_down[256];
+static unsigned char key_reported[256]; // this hold has real release events
+static int keyboard_events = 0;
+// ASCII keys, four physical modifiers, and four arrows. Keep aliases held until
+// their last physical source releases (e.g. w + Up, or r + Shift).
+static uint16_t physical_key[136]; // DOOM key + 1; zero means released
+static unsigned char physical_count[256];
+static char input_sequence[64];
+static size_t input_length = 0;
+static uint32_t escape_seen = 0;
 static uint32_t hold_ms = DEFAULT_RELEASE_MS;
 
 static void on_winch(int signum)
@@ -119,7 +125,7 @@ static void restore_terminal(void)
 	}
 	// Colours off, cursor back, and a clear so the pane is not left holding
 	// half a frame.
-	const char *bye = "\033[0m\033[?25h\033[2J\033[H";
+	const char *bye = "\033[<u\033[0m\033[?25h\033[2J\033[H";
 	ssize_t ignored = write(STDOUT_FILENO, bye, strlen(bye));
 	(void)ignored;
 }
@@ -352,6 +358,7 @@ static void press(unsigned char key)
 			key_gap[key] = gap;
 	}
 	key_seen[key] = now;
+	key_reported[key] = 0;
 	int was_down = key_down[key];
 	if (!was_down) {
 		// A new hold has its own initial repeat delay. Reusing an old short
@@ -387,36 +394,30 @@ static uint32_t window_for(unsigned char key)
 }
 
 // Map one byte, or an escape sequence already recognised by the caller.
-static void map_byte(unsigned char c)
+static int key_for_byte(unsigned char c)
 {
 	switch (c) {
+	case 033:
+		return KEY_ESCAPE;
 	case '\r':
 	case '\n':
-		press(KEY_ENTER);
-		return;
+		return KEY_ENTER;
 	case '\t':
-		press(KEY_TAB);
-		return;
+		return KEY_TAB;
 	case 0x7f:
 	case 0x08:
-		press(KEY_BACKSPACE);
-		return;
+		return KEY_BACKSPACE;
 	case ' ':
-		press(KEY_USE);
-		return;
+		return KEY_USE;
 	case ',':
-		press(KEY_STRAFE_L);
-		return;
+		return KEY_STRAFE_L;
 	case '.':
-		press(KEY_STRAFE_R);
-		return;
+		return KEY_STRAFE_R;
 	case '+':
 	case '=':
-		press(KEY_EQUALS);
-		return;
+		return KEY_EQUALS;
 	case '-':
-		press(KEY_MINUS);
-		return;
+		return KEY_MINUS;
 	default:
 		break;
 	}
@@ -425,109 +426,204 @@ static void map_byte(unsigned char c)
 	switch (c) {
 	case 'w':
 	case 'W':
-		press(KEY_UPARROW);
-		return;
+		return KEY_UPARROW;
 	case 's':
 	case 'S':
-		press(KEY_DOWNARROW);
-		return;
+		return KEY_DOWNARROW;
 	case 'a':
 	case 'A':
-		press(KEY_STRAFE_L);
-		return;
+		return KEY_STRAFE_L;
 	case 'd':
 	case 'D':
-		press(KEY_STRAFE_R);
-		return;
+		return KEY_STRAFE_R;
 	case 'q':
 	case 'Q':
-		press(KEY_LEFTARROW);
-		return;
+		return KEY_LEFTARROW;
 	case 'e':
 	case 'E':
-		press(KEY_RIGHTARROW);
-		return;
+		return KEY_RIGHTARROW;
 	case 'f':
 	case 'F':
-		press(KEY_FIRE);
-		return;
+		return KEY_FIRE;
 	case 'r':
 	case 'R':
-		press(KEY_RSHIFT); // run, since a bare shift never reaches us
-		return;
+		return KEY_RSHIFT;
 	default:
 		break;
 	}
 	if (c >= '0' && c <= '9') {
-		press(c);
-		return;
+		return c;
 	}
 	// Any other control byte is a fire: `ctrl` is DOOM's own fire key and a
 	// terminal hands us the control code rather than the modifier.
 	if (c < 32) {
-		press(KEY_FIRE);
-		return;
+		return KEY_FIRE;
 	}
 	if (c < 128)
-		press(c); // cheats, y/n prompts, and anything DOOM reads as a letter
+		return c; // cheats, y/n prompts, and anything DOOM reads as a letter
+	return -1;
+}
+
+static void map_byte(unsigned char c)
+{
+	int key = key_for_byte(c);
+	if (key >= 0)
+		press((unsigned char)key);
+}
+
+// Kitty keyboard protocol: event types 1/2/3 are press/repeat/release.
+// https://sw.kovidgoyal.net/kitty/keyboard-protocol/
+static void terminal_key(unsigned char key, int type, int reported, int identity)
+{
+	if (reported && identity >= 0) {
+		uint16_t *source = &physical_key[identity];
+		if (type == 3) {
+			if (*source) {
+				key = (unsigned char)(*source - 1);
+				*source = 0;
+				if (--physical_count[key])
+					return;
+			} else if (physical_count[key]) {
+				return;
+			}
+		} else if (!*source) {
+			*source = (uint16_t)key + 1;
+			physical_count[key]++;
+		} else {
+			key = (unsigned char)(*source - 1);
+		}
+	}
+	if (type == 3) {
+		if (key_down[key]) {
+			key_down[key] = key_reported[key] = 0;
+			push(0, key);
+		}
+		return;
+	}
+	press(key);
+	key_reported[key] = reported;
+}
+
+static void decode_sequence(void)
+{
+	char final = input_sequence[input_length - 1];
+	input_sequence[input_length - 1] = '\0';
+	char *parameters = input_sequence + 2;
+	if (input_sequence[1] == '[' && *parameters == '?' && final == 'u') {
+		char *end;
+		unsigned long flags = strtoul(parameters + 1, &end, 10);
+		if (end != parameters + 1 && *end == '\0')
+			keyboard_events = (flags & 2) != 0;
+		return;
+	}
+	if (*parameters == '?' || *parameters == '>' || *parameters == '<')
+		return;
+	int type = 1, reported = keyboard_events;
+	char *modifiers = strchr(parameters, ';');
+	unsigned long mods = 1;
+	if (modifiers) {
+		char *end;
+		mods = strtoul(modifiers + 1, &end, 10);
+		if (modifiers[1] < '0' || modifiers[1] > '9' || end == modifiers + 1 || mods == 0 || mods > 256)
+			return;
+		if (*end == ':') {
+			char *event_end;
+			long event = strtol(end + 1, &event_end, 10);
+			if (event_end == end + 1 || (*event_end != '\0' && *event_end != ';') || event < 1 || event > 3)
+				return;
+			type = (int)event;
+			reported = 1;
+		} else if (*end != '\0' && *end != ';') {
+			return;
+		}
+	}
+	int key = -1, identity = -1;
+	if (final >= 'A' && final <= 'D' && *parameters) {
+		char *end;
+		if (strtoul(parameters, &end, 10) != 1 || (*end != '\0' && *end != ';'))
+			return;
+	}
+	switch (final) {
+	case 'A': key = KEY_UPARROW; identity = 132; break;
+	case 'B': key = KEY_DOWNARROW; identity = 133; break;
+	case 'C': key = KEY_RIGHTARROW; identity = 134; break;
+	case 'D': key = KEY_LEFTARROW; identity = 135; break;
+	case 'u': {
+		if (input_sequence[1] != '[' || *parameters < '0' || *parameters > '9')
+			return;
+		char *end;
+		unsigned long code = strtoul(parameters, &end, 10);
+		if (*end != '\0' && *end != ';')
+			return;
+		if (code < 128) {
+			key = key_for_byte((unsigned char)code);
+			identity = (int)code;
+		}
+		// Bare modifiers are available when all keys are reported.
+		else if (code == 57441 || code == 57447) {
+			key = KEY_RSHIFT;
+			identity = code == 57441 ? 128 : 129;
+		} else if (code == 57442 || code == 57448) {
+			key = KEY_FIRE;
+			identity = code == 57442 ? 130 : 131;
+		}
+		if (((mods - 1) & 4) && code >= 'a' && code <= 'z')
+			key = KEY_FIRE;
+		break;
+	}
+	default: return;
+	}
+	if (key >= 0)
+		terminal_key((unsigned char)key, type, reported, identity);
 }
 
 static void read_input(void)
 {
 	unsigned char buffer[256];
 	ssize_t n = read(STDIN_FILENO, buffer, sizeof(buffer));
-	if (n <= 0)
-		return;
 	for (ssize_t i = 0; i < n; i++) {
-		if (buffer[i] == 033) {
-			// CSI or SS3 arrow, or a bare escape for the menu.
-			if (i + 2 < n && (buffer[i + 1] == '[' || buffer[i + 1] == 'O')) {
-				unsigned char final = buffer[i + 2];
-				int handled = 1;
-				switch (final) {
-				case 'A':
-					press(KEY_UPARROW);
-					break;
-				case 'B':
-					press(KEY_DOWNARROW);
-					break;
-				case 'C':
-					press(KEY_RIGHTARROW);
-					break;
-				case 'D':
-					press(KEY_LEFTARROW);
-					break;
-				default:
-					handled = 0;
-					break;
-				}
-				if (handled) {
-					i += 2;
-					continue;
-				}
-				// Something longer we do not read: skip to its final byte
-				// rather than feeding the parameters to DOOM as keystrokes.
-				ssize_t j = i + 2;
-				while (j < n && !(buffer[j] >= 0x40 && buffer[j] <= 0x7e))
-					j++;
-				i = j;
-				continue;
-			}
+		unsigned char c = buffer[i];
+		if (input_length == 1 && c != '[' && c != 'O') {
 			press(KEY_ESCAPE);
+			input_length = 0;
+		}
+		if (c == 033) {
+			input_sequence[0] = c;
+			input_length = 1;
+			escape_seen = DG_GetTicksMs();
 			continue;
 		}
-		map_byte(buffer[i]);
+		if (!input_length) {
+			map_byte(c);
+			continue;
+		}
+		if (input_length >= sizeof(input_sequence) - 1) {
+			// Discard an oversized report through its final byte; its numeric
+			// parameters must never become weapon presses or cheat characters.
+			input_length = (c >= 0x40 && c <= 0x7e) ? 0 : sizeof(input_sequence);
+			continue;
+		}
+		input_sequence[input_length++] = (char)c;
+		if (input_length > 2 && c >= 0x40 && c <= 0x7e) {
+			decode_sequence();
+			input_length = 0;
+		}
+	}
+	// A lone legacy Esc is ambiguous with a sequence prefix. Give split PTY
+	// reads a short opportunity to complete; modern Esc is unambiguous CSI 27u.
+	if (input_length == 1 && DG_GetTicksMs() - escape_seen >= 25) {
+		press(KEY_ESCAPE);
+		input_length = 0;
 	}
 }
 
-// Release anything that has been quiet long enough. This is the whole of the
-// held-key story: auto-repeat keeps a held key arriving, so silence means it
-// went up.
+// Only unreported holds expire. Real release events own modern-keyboard holds,
+// so a long repeat delay cannot interrupt them and a tap stops on key-up.
 static void expire_keys(void)
 {
 	uint32_t now = DG_GetTicksMs();
 	for (int key = 0; key < 256; key++) {
-		if (!key_down[key])
+		if (!key_down[key] || key_reported[key])
 			continue;
 		if (now - key_seen[key] < window_for((unsigned char)key))
 			continue;
@@ -575,7 +671,7 @@ void DG_Init(void)
 	signal(SIGWINCH, on_winch);
 	// ISIG is off, so ctrl+c arrives as a byte rather than a signal; DOOM's own
 	// menu is the way out, and the pane's own chord releases it.
-	const char *hello = "\033[?25l\033[2J";
+	const char *hello = "\033[?25l\033[2J\033[>11u\033[?u";
 	ssize_t ignored = write(STDOUT_FILENO, hello, strlen(hello));
 	(void)ignored;
 	int flags = fcntl(STDOUT_FILENO, F_GETFL);
