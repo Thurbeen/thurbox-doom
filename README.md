@@ -59,7 +59,7 @@ version:
 
 | | |
 |---|---|
-| binary | `engine/bin/linux-x86_64/doom`, 1.5 MB, statically linked — no runtime, no shared libraries |
+| binary | `engine/bin/linux-x86_64/doom`, 1.6 MB, statically linked — no runtime, no shared libraries |
 | source | [doomgeneric](https://github.com/ozkl/doomgeneric) at `dcb7a8d`, unmodified, plus `doomgeneric_thurbox.c` |
 | rebuild | `cd engine/src && make` — a C compiler and `make`, nothing else |
 | licence | **GPL-2.0** (`engine/LICENSE`). The pane is MIT; the WAD is Freedoom's BSD |
@@ -156,13 +156,18 @@ down, and a longer hold with repeats had a maximum turning-tick gap of 31 ms.
 Engine draw calls averaged 14.30 ms apart; changing output frames averaged 30.82 ms,
 with an 85 ms maximum gap in that run. Draw calls and changing cells are different
 cadences: identical cells are omitted, and DOOM's simulation advances at 35 Hz.
-These measurements exclude the user's display presentation and SSH path.
+A larger-screen regression then reproduced slow refresh in the first patch: at
+200×60 cells it delivered only 10 changing frames with a 127 ms mean interval and
+170 ms maximum. Resuming pending writes during the game loop's sleep, as soon as
+stdout becomes writable, raises that to 46 frames with a 28.18 ms mean and 40 ms
+maximum. Output starvation still leaves simulation and input running. These
+measurements exclude the user's display presentation and SSH path.
 
 An optional physical-key test, `python3 tests/ghostty_input.py`, runs Ghostty and
 Xvfb on a separate virtual display, with repeat disabled there. It requires Linux,
 Ghostty, Xvfb, X11/XTest libraries and ffmpeg. Ghostty **1.3.1-arch2 (tip build)**
 was exercised: the same 50 ms physical arrow tap turned 79.1° with the original
-engine and 3.52° with the fix, with physical release received in 9–11 ms. A 900 ms
+engine and 3.52° with the fix, with physical release received in 8–11 ms. A 900 ms
 hold continued until physical key-up; the original stopped turning near 700 ms.
 The script records the comparison below and removes its temporary terminal/display.
 
@@ -182,8 +187,50 @@ These are single-run measurements at 100×40 cells. A separate fixed 155×40 run
 passed too. The operator reproduced similar lag over SSH in thurbox and standalone,
 then locally without SSH using Windows Terminal and Ghostty. Thus SSH and thurbox
 are not required to reproduce the engine symptoms. The operator's terminal versions
-and Windows Terminal behavior with this fix remain unverified; no SSH delay is
+remain unverified. The operator reported slow Windows Terminal refresh with the
+first PR revision; the larger-screen regression above reproduced a renderer defect,
+but the latest revision still needs Windows Terminal validation; no SSH delay is
 inferred from these reports. Actual manual play still needs the operator's validation.
+
+Standalone resolution is selected from capability replies, without guessing from
+`TERM`. Kitty graphics sends the full **640×400 RGB framebuffer**, compressed with
+zlib, and scales it across the terminal's cells. Sixel uses the terminal's reported
+pixel viewport and the game's palette, with nearest-neighbour scaling. For example,
+the regression decodes an 800×640 Sixel image and verifies it against the original
+framebuffer. If pixel size is unavailable, Sixel uses the native framebuffer size.
+The renderer asks for pixel geometry again after resizing.
+
+The text fallback fills the full cell grid, with RGB colours and two vertical
+samples per cell. A 200×60 pane displays 200×120 text pixels. Resizing triggers a
+full repaint; the regression also covers 600 columns, beyond the old 512-column
+limit. Pixel rendering exposes the existing engine's full detail; it does not add
+a higher-resolution 3D renderer or interpolate the 35 Hz simulation.
+
+To try the latest bundled engine standalone, from this checkout:
+
+```sh
+./engine/bin/linux-x86_64/doom -iwad wad/doom1.wad -warp 1 1
+# Compare the same scene using the thurbox-compatible text path:
+./engine/bin/linux-x86_64/doom -iwad wad/doom1.wad -warp 1 1 -cells
+```
+
+Hold an arrow for a second, release it, tap it briefly, and resize the window.
+Turning should continue through the hold, stop on release, and use the resized
+viewport. `python3 tests/graphics_output.py` decodes both image protocols and
+compares them with real engine frames, checks turning cadence and input during
+blocked image output, and verifies normal-exit cleanup. Ghostty pixel rendering
+was also exercised on a private display; Windows Terminal presentation with this
+revision still needs manual validation. The installed plugin is unchanged.
+
+Other ports keep keyboard handling in their platform frontend too:
+[Terminal Doom](https://github.com/cryptocode/terminal-doom/blob/35ab605e37e92616417bc901b2762599fc979a72/src/main.zig)
+vendors doomgeneric and uses libvaxis key releases;
+[doom-cli](https://github.com/ludocode/doom-cli/blob/018e1edf67a093f8ac48e57591eb934e9bc01b26/doomgeneric/doomgeneric_cli.c)
+infers releases from timing;
+[Kitty DOOM](https://github.com/jserv/kitty-doom/blob/ea5eef12c58f2a76ef9c0b073f6b9605ed332e87/src/input.c)
+uses PureDOOM and schedules 50 ms releases. The checked Terminal Doom versions of
+`doomgeneric.c`, `g_game.c` and `d_loop.c` match this repository byte for byte;
+changing the vendored engine would not replace the frontend input/output handling.
 
 For press-only input the compatibility fallback remains: `-release` defaults to
 700 ms on each hold, then shrinks to twice the learned repeat interval plus 20 ms

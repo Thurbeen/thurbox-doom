@@ -1,17 +1,19 @@
 # The engine
 
 DOOM itself, built for a thurbox program pane, plus the complete source it was
-built from. **This directory is GPL-2.0** (see `LICENSE` beside this file); the
-pane in `plugins/` is MIT and the WAD in `wad/` is Freedoom's modified BSD. Three
-licences, three directories, no ambiguity about which covers what.
+built from. **The engine is GPL-2.0** (see `LICENSE` beside this file);
+`src/vendor/zlib/` retains its own zlib license. The
+pane in `plugins/` is MIT and the WAD in `wad/` is Freedoom's modified BSD.
 
 ## What is here
 
 | Path | What |
 |---|---|
-| `bin/linux-x86_64/doom` | a statically linked binary, 1.5M, no shared libraries and no runtime |
+| `bin/linux-x86_64/doom` | a statically linked binary, 1.6M, no shared libraries and no runtime |
 | `src/doomgeneric_thurbox.c` | the frontend written for this pane |
 | `src/` (the rest) | [doomgeneric](https://github.com/ozkl/doomgeneric) at commit `dcb7a8d`, with one marked change (below) |
+| `src/terminal_graphics.c` | negotiated Kitty RGB and Sixel pixel renderers |
+| `src/vendor/zlib/` | unmodified compression sources from verified zlib 1.3.2 |
 | `src/Makefile` | the recipe that produced the binary |
 | `LICENSE` | GNU GPL v2, which DOOM's source carries |
 
@@ -33,14 +35,17 @@ it. Everything else in `src/` is upstream's, byte for byte.
 cd engine/src && make test
 ```
 
-Compiles `doomgeneric_thurbox.c` itself against a fake clock and asserts the release
+Compiles the frontend against a fake clock and asserts the release
 behaviour — that a held key survives a stock repeat delay, that the window collapses once
 the repeat rate is known, that a tap does not stick, and that `-release` still overrides.
-The timing test needs no doomgeneric objects. From the repository root,
+The timing test needs no game objects. From the repository root,
 `python3 tests/input_latency.py` builds and runs the real engine in an isolated PTY,
 checking input and simulation ticks during output backpressure, tap-turn angle,
 real press/repeat/release events, held-turn continuity, frame cadence, split reads,
-aliases, terminal-mode restoration, and resumed rendering after resize.
+aliases, terminal-mode restoration, full-grid scaling, large-screen cadence, and
+resumed rendering after resize. `python3 tests/graphics_output.py` decodes real engine
+images in both protocols, compares pixel hashes, and verifies cadence, backpressure
+and normal-exit cleanup.
 `python3 tests/ghostty_input.py` is the optional physical-key comparison under an
 isolated Ghostty/Xvfb display; it also records `media/input-turning.gif`. This optional
 Linux test needs Ghostty, Xvfb, X11/XTest libraries and ffmpeg. Both tests need
@@ -57,8 +62,10 @@ Needs a C compiler and `make`; nothing else. Built here with
 `cc (GCC) 16.2.1 20260810` and `-O2 -static`.
 
 ```text
-sha256  eef0ea3eeeff551be3925f78a45fb3cae268fd7b2f3e9cfcf750c002c3669d09  bin/linux-x86_64/doom
-sha256  c02916d1219a6d2b08cb3f35f69c4150f8abd57f9fcdd91dd5728c4face5d49f  src/doomgeneric_thurbox.c
+sha256  15ac837ec3d792fbfbf694765c2b511024ed77e76047a93305a04e7faf3651eb  bin/linux-x86_64/doom
+sha256  5fc0b1b8cee431430ddb931fde8f8891f4c2ee95a35b052dc0833655b5969116  src/doomgeneric_thurbox.c
+sha256  e080cf8f95586f39faf328cb17f4c3724cb19a9a42d5302ef11b71086a9defb8  src/terminal_graphics.c
+sha256  08f7379017a253d7e5eac2ecd918ebeb08903b0f1a09a253be6aad16f3ea015f  src/terminal_graphics.h
 ```
 
 A rebuild will not match that hash byte for byte — a different compiler version or
@@ -81,15 +88,18 @@ paints text cells and reads keys from stdin.
 
 ## What the frontend does differently
 
-Three things worth knowing, all in `src/doomgeneric_thurbox.c`:
+Three things worth knowing about the frontend:
 
-- **It paints cells.** One `▀` per character, top pixel in the foreground and
-  bottom in the background, 24-bit colour: two vertical pixels per cell. A
-  surface carries characters, so a terminal graphics protocol would have nothing
-  to be parsed into.
+- **It selects a supported renderer.** A thurbox surface uses RGB half-block
+  cells. Standalone capability replies select compressed Kitty RGB images or
+  Sixel images sized to the reported pixel viewport. Both use the complete
+  640×400 framebuffer. `-cells` forces the text path; unsupported probes keep it.
+  The compression-only zlib sources are vendored, so rebuilding still needs only
+  a C compiler and make.
 - **It diffs frames.** Only cells whose colours changed are emitted, in runs, with
   synchronised output around each frame. Output is nonblocking; an unfinished
-  frame is retained before another is built, so backpressure skips paints rather
+  frame is retained before another is built and resumes as soon as stdout is
+  writable during game-loop sleep, so backpressure skips paints rather
   than blocking game ticks. Measured against a full-repaint port on
   the same WAD and terminal size: **~11 KB a frame instead of ~53 KB**, about
   0.7 MB/s instead of 3.7.
