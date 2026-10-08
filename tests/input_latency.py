@@ -33,12 +33,14 @@ def run():
         binary = Path(scratch) / "doom-traced"
         trace = Path(scratch) / "events"
         menu_trace = Path(scratch) / "menu"
+        tick_trace = Path(scratch) / "ticks"
         subprocess.run(["cc", "-O2", "-I" + str(ROOT / "engine/src"),
                         str(ROOT / "tests/input_trace.c"), *objects,
-                        "-Wl,--wrap=DG_GetKey", "-Wl,--wrap=M_Responder", "-lm", "-o", str(binary)], check=True)
+                        "-Wl,--wrap=DG_GetKey", "-Wl,--wrap=M_Responder", "-Wl,--wrap=G_Ticker", "-lm", "-o", str(binary)], check=True)
         master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 100, 0, 0))
-        env = dict(os.environ, DOOM_INPUT_TRACE=str(trace), DOOM_MENU_TRACE=str(menu_trace))
+        env = dict(os.environ, DOOM_INPUT_TRACE=str(trace),
+                   DOOM_MENU_TRACE=str(menu_trace), DOOM_TICK_TRACE=str(tick_trace))
         proc = subprocess.Popen([str(binary), "-iwad", str(ROOT / "wad/doom1.wad"),
                                  "-warp", "1", "1", "-config", str(Path(scratch) / "config")],
                                 stdin=slave, stdout=slave, stderr=slave, cwd=scratch, env=env)
@@ -102,6 +104,10 @@ def run():
             start = ticks()
             os.write(master, b"f")
             wait(0.35, drain=False)
+            stalled_ticks = [int(line) for line in tick_trace.read_text().splitlines()
+                             if int(line) >= start]
+            check(len(stalled_ticks) >= 5,
+                  f"simulation continues during 350 ms output stall: {len(stalled_ticks)} ticks")
             fire = [e for e in events() if e[0] >= start and e[1:] == (1, 0xa3)]
             latency = fire[0][0] - start if fire else None
             check(latency is not None and latency < 100,

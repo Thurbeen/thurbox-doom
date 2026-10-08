@@ -37,3 +37,16 @@ boolean __wrap_M_Responder(event_t *event)
     }
     return handled;
 }
+
+void __real_G_Ticker(void);
+void __wrap_G_Ticker(void)
+{
+    static FILE *ticks;
+    if (!ticks) {
+        ticks = fopen(getenv("DOOM_TICK_TRACE"), "w");
+        if (!ticks) abort();
+        setvbuf(ticks, NULL, _IONBF, 0);
+    }
+    __real_G_Ticker();
+    fprintf(ticks, "%u\n", DG_GetTicksMs());
+}
