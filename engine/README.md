@@ -38,8 +38,8 @@ behaviour — that a held key survives a stock repeat delay, that the window col
 the repeat rate is known, that a tap does not stick, and that `-release` still overrides.
 The timing test needs no doomgeneric objects. From the repository root,
 `python3 tests/input_latency.py` builds and runs the real engine in an isolated PTY,
-checking input during output backpressure, repeat delay on a second hold, and
-resumed rendering after resize. It requires Python 3 on a POSIX system and removes
+checking input and simulation ticks during output backpressure, repeat delay on
+a second hold, quick menu presses, and resumed rendering after resize. It requires Python 3 on a POSIX system and removes
 its scratch files when it exits.
 
 ## Rebuilding it

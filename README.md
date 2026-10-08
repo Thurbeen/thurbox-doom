@@ -153,16 +153,22 @@ dispatch and input-transport changes, as well as terminal support.
 
 `engine/src/release_test.c` checks timing with a fake clock (`cd engine/src && make test`).
 `python3 tests/input_latency.py` runs the real engine in a separate pseudo-terminal and
-records events at its input boundary. On Linux with a 100×40 terminal, the regression
-measured a first movement press at 16 ms before the fix. With output reading paused,
-fire was still unprocessed after 350 ms and arrived at 352 ms when reading resumed.
-After the fixes, a later run delivered fire under the same stall in 9 ms, the
-first movement press in 14 ms, and release after repeats in 97 ms. A subsequent
-hold survived the full 600 ms initial repeat delay. Two Esc taps 150 ms apart
-previously opened the menu but discarded the second press; they now open and close
-it, with the second menu action measured at 9 ms. A synthetic 1024-byte repeat
-backlog delivered a trailing Tab in 4 ms. The test also checks resumed output,
-resize during a pending frame, and balanced run-modifier transitions.
+records events at its input boundary and simulation ticks. Controlled standalone
+runs on Linux at 100×40 cells gave these measurements (single runs, not a latency
+benchmark distribution):
+
+| Scenario | Original frontend | Fixed frontend |
+|---|---|---|
+| First movement, draining output | 14 ms | 14 ms |
+| Second hold, 600 ms initial repeat delay | releases early | stays down |
+| Two Esc taps 150 ms apart | second press discarded | second menu action in 4 ms |
+| Fire during a 350 ms output stall | arrives at 353 ms after reading resumes | 12 ms |
+| Simulation during the same output stall | 0 ticks | 12 ticks |
+| Tab behind 1024 buffered repeat bytes | 109 ms | 28 ms |
+
+A separate fixed run at 155×40 cells also passed, delivering fire during the stall
+in 1 ms while simulation ran 13 ticks. The regression checks resumed output,
+resize during a pending frame, and balanced run-modifier transitions too.
 
 The operator reported similar lag in thurbox and when running the bundled engine
 standalone; both sessions used SSH. That comparison removes thurbox while retaining
