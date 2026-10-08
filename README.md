@@ -142,9 +142,13 @@ move, stall, move — which reads as lag and is not. A window longer than the de
 
 The interval is relearned on every hold. Reusing a previous hold's short interval caused
 later holds to release before their first repeat. A lone tap can therefore remain down
-for 700 ms; rapid taps during that window may merge. Press-only input cannot distinguish
-those taps from a held key. `-release` lets you choose this tradeoff; it does not add a
-delay before the first press reaches the engine. True releases require host event
+for 700 ms; movement and use taps during that window may merge. Incoming presses
+are also forwarded as keydown events, so menus and shortcuts respond to another
+press without waiting for the inferred release. Adjacent duplicates buffered in
+one input batch are coalesced; run-modifier repeats do not increment DOOM's shift
+counter. Press-only input cannot distinguish a movement tap from a held key.
+`-release` lets you choose this tradeoff; it does not add a delay before the first
+press reaches the engine. True releases require host event
 dispatch and input-transport changes, as well as terminal support.
 
 `engine/src/release_test.c` checks timing with a fake clock (`cd engine/src && make test`).
@@ -152,13 +156,22 @@ dispatch and input-transport changes, as well as terminal support.
 records events at its input boundary. On Linux with a 100×40 terminal, the regression
 measured a first movement press at 16 ms before the fix. With output reading paused,
 fire was still unprocessed after 350 ms and arrived at 352 ms when reading resumed.
-After the fix, the same stalled-output case delivered fire in 20–23 ms; subsequent
-holds survived a 600 ms initial repeat delay and released in 112–113 ms after repeats
-stopped. A synthetic 1024-byte repeat backlog delivered a trailing Tab in 94 ms
-on a later run. The test also checks resumed output and resize during a pending frame.
+After the fixes, a later run delivered fire under the same stall in 9 ms, the
+first movement press in 14 ms, and release after repeats in 97 ms. A subsequent
+hold survived the full 600 ms initial repeat delay. Two Esc taps 150 ms apart
+previously opened the menu but discarded the second press; they now open and close
+it, with the second menu action measured at 9 ms. A synthetic 1024-byte repeat
+backlog delivered a trailing Tab in 4 ms. The test also checks resumed output,
+resize during a pending frame, and balanced run-modifier transitions.
 
-These are engine-side measurements, excluding host dispatch, terminal/SSH latency and
-screen presentation. DOOM simulates at 35 ticks per second; the reference host source
+The operator reported similar lag in thurbox and when running the bundled engine
+standalone; both sessions used SSH. That comparison removes thurbox while retaining
+SSH, terminal input, and engine handling. The controlled regression runs standalone
+over a local PTY with a specified 600 ms repeat delay and 40 ms repeat interval;
+it reproduces engine failures without SSH and does not measure the operator's
+transport. The terminal application is unspecified. These are engine-side
+measurements, excluding host dispatch, terminal/SSH latency and screen presentation.
+DOOM simulates at 35 ticks per second; the reference host source
 paces output paints at 33 ms and input paints at 16 ms. Frame presentation can lag even
 when input is already reaching the engine. Startup screen wipes also run without normal
 input polling. Neither terminal release support nor live gameplay was verified by this

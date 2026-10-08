@@ -52,8 +52,8 @@ Needs a C compiler and `make`; nothing else. Built here with
 `cc (GCC) 16.2.1 20260810` and `-O2 -static`.
 
 ```text
-sha256  21b9f29c97b0326757d90c660fbaac6c3aa2fd04db397132606023ed72c30f0f  bin/linux-x86_64/doom
-sha256  8d302bef9d5c672aa0f62a32dbb90b4c62bdfbb01b3f4424191255eebe8642ef  src/doomgeneric_thurbox.c
+sha256  f28ad095cef2dbc82c64b15ac4c6baccecd71954dc5cd279d4d0bc27f67b29cf  bin/linux-x86_64/doom
+sha256  8d11eb5e9faa815b2d0d0ff25798d7459de064e02cf522eb7ecc1dcaf6bb0021  src/doomgeneric_thurbox.c
 ```
 
 A rebuild will not match that hash byte for byte — a different compiler version or
