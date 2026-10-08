@@ -60,17 +60,16 @@ version:
 | | |
 |---|---|
 | binary | `engine/bin/linux-x86_64/doom`, 1.6 MB, statically linked — no runtime, no shared libraries |
-| source | [doomgeneric](https://github.com/ozkl/doomgeneric) at `dcb7a8d`, unmodified, plus `doomgeneric_thurbox.c` |
+| source | [doomgeneric](https://github.com/ozkl/doomgeneric) at `dcb7a8d`, plus the terminal frontend, pixel renderers and vendored zlib compression sources |
 | rebuild | `cd engine/src && make` — a C compiler and `make`, nothing else |
-| licence | **GPL-2.0** (`engine/LICENSE`). The pane is MIT; the WAD is Freedoom's BSD |
+| licence | **GPL-2.0** (`engine/LICENSE`), with zlib under its own license. The pane is MIT; the WAD is Freedoom's BSD |
 
 Three things its frontend does deliberately, because a pane is not a terminal
 emulator:
 
-- **It paints cells.** One `▀` per character, top pixel in the foreground and bottom
-  in the background at 24-bit colour — two vertical pixels per cell. A surface
-  carries *characters*, so a port using a terminal graphics protocol (Kitty
-  graphics, Sixel) would have nothing to be parsed into.
+- **It uses the available display.** A thurbox surface carries characters, so it
+  uses RGB half-block cells there. Standalone capability replies select Kitty
+  graphics or Sixel for full framebuffer pixels; `-cells` forces text.
 - **It diffs frames.** Only cells whose colour changed are emitted, in runs, inside
   synchronised-output markers. Writes are nonblocking: one unfinished frame is
   retained, and new frames are skipped until it finishes, so a slow reader cannot

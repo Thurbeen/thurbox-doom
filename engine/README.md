@@ -27,7 +27,8 @@ the exact tree this binary was compiled from.
 Upstream probes for `/usr/bin/zenity` and opens a **GUI error box** when DOOM fails —
 which inside a terminal pane is a dialog nobody can see, announced by GTK warnings
 printed over the game. `I_Error`'s message still goes to stderr, where the pane shows
-it. Everything else in `src/` is upstream's, byte for byte.
+it. The other vendored doomgeneric C/header files are upstream's, byte for byte; the
+terminal frontend, pixel renderers, build recipe and zlib sources are listed above.
 
 ## Testing the key timing
 
