@@ -32,6 +32,7 @@ void doomgeneric_Create(int argc, char **argv)
 	(void)argv;
 }
 void doomgeneric_Tick(void) {}
+void D_PostEvent(event_t *event) { (void)event; }
 
 static int failures = 0;
 

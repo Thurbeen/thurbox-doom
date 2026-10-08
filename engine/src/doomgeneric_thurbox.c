@@ -44,6 +44,7 @@
 
 #include "doomgeneric.h"
 #include "doomkeys.h"
+#include "d_event.h"
 #include "terminal_graphics.h"
 #include "m_argv.h"
 
@@ -114,6 +115,9 @@ static size_t input_length = 0;
 static int input_string = 0, string_escape = 0, string_overflow = 0;
 static uint32_t escape_seen = 0;
 static uint32_t hold_ms = DEFAULT_RELEASE_MS;
+static int mouse_enabled = 1, mouse_position = 0;
+static int mouse_x, mouse_y, mouse_dx, mouse_dy, mouse_buttons, mouse_changed;
+
 
 static void on_winch(int signum)
 {
@@ -129,6 +133,14 @@ static void restore_terminal(void)
 	}
 	// Colours off, cursor back, and a clear so the pane is not left holding
 	// half a frame.
+	if (mouse_enabled) {
+		// Reset first: some terminals support tracking but ignore xterm's
+        // private-mode save/restore. Then restore modes where supported.
+        const char *mouse_bye = "\033[?1003l\033[?1006l\033[?1004l"
+                                "\033[?1000r\033[?1002r\033[?1003r\033[?1006r\033[?1004r";
+		ssize_t ignored = write(STDOUT_FILENO, mouse_bye, strlen(mouse_bye));
+		(void)ignored;
+	}
 	const char *bye = "\033_Ga=d,d=I,i=32,q=2;\033\\\033[?80r\033[<u\033[0m\033[?25h\033[2J\033[H";
 	ssize_t ignored = write(STDOUT_FILENO, bye, strlen(bye));
 	(void)ignored;
@@ -543,11 +555,64 @@ static void terminal_key(unsigned char key, int type, int reported, int identity
 	key_reported[key] = reported;
 }
 
+// SGR all-motion reports give absolute cell positions and separate releases.
+// Accumulate motion within a read: G_Responder replaces, rather than adds, its
+// mouse delta, so posting each report would lose all but the last one.
+static void decode_mouse(const char *parameters, char final)
+{
+	if (!mouse_enabled || (final != 'M' && final != 'm')) return;
+	unsigned values[3];
+	const char *p = parameters + 1;
+	for (int i = 0; i < 3; i++) {
+		char *end;
+		if (*p < '0' || *p > '9') return;
+		unsigned long value = strtoul(p, &end, 10);
+		if (value > (i ? 16384u : 63u) || (i && !value) ||
+			*end != (i == 2 ? '\0' : ';')) return;
+		values[i] = (unsigned)value;
+		p = end + 1;
+	}
+	unsigned button = values[0], x = values[1], y = values[2];
+	int which = button & 3;
+	// A motion report never changes the button mask. Map xterm's
+	// left/middle/right order to DOOM's left/right/middle order.
+	if (!(button & 32) && which < 3) {
+		int mask = 1 << (which == 1 ? 2 : which == 2 ? 1 : 0);
+		if (final == 'm') mouse_buttons &= ~mask;
+		else mouse_buttons |= mask;
+	}
+	if (mouse_position) {
+		mouse_dx += ((int)x - mouse_x) * 8;
+		mouse_dy += (mouse_y - (int)y) * 16;
+	}
+	mouse_x = (int)x; mouse_y = (int)y;
+	mouse_position = mouse_changed = 1;
+}
+
 static void decode_sequence(void)
 {
 	char final = input_sequence[input_length - 1];
 	input_sequence[input_length - 1] = '\0';
 	char *parameters = input_sequence + 2;
+	if (input_sequence[1] == '[' && !*parameters && (final == 'I' || final == 'O')) {
+		mouse_position = 0;
+		if (final == 'O') {
+			// Key/button releases can happen outside the terminal window.
+			for (int key = 0; key < 256; key++) {
+				if (key_down[key]) push(0, (unsigned char)key);
+				key_down[key] = key_reported[key] = 0;
+			}
+			memset(physical_key, 0, sizeof(physical_key));
+			memset(physical_count, 0, sizeof(physical_count));
+			mouse_buttons = mouse_dx = mouse_dy = 0;
+			mouse_changed = mouse_enabled;
+		}
+		return;
+	}
+	if (input_sequence[1] == '[' && *parameters == '<') {
+		decode_mouse(parameters, final);
+		return;
+	}
 	if (!force_cells && final == 'c' && *parameters == '?') {
 		for (char *p = parameters + 1; *p;) {
 			char *end;
@@ -722,8 +787,16 @@ int DG_GetKey(int *pressed, unsigned char *key)
 		read_input();
 		expire_keys();
 	}
-	if (queue_head == queue_tail)
+	if (queue_head == queue_tail) {
+		// At most one mouse event per I_GetEvent pass, including when a long
+		// keyboard queue makes us read stdin more than once during that pass.
+		if (mouse_changed) {
+			event_t event = {ev_mouse, mouse_buttons, mouse_dx, mouse_dy, 0};
+			D_PostEvent(&event);
+			mouse_dx = mouse_dy = mouse_changed = 0;
+		}
 		return 0;
+	}
 	*pressed = queue[queue_head].pressed;
 	*key = queue[queue_head].key;
 	queue_head = (queue_head + 1) % EVENT_QUEUE;
@@ -762,6 +835,11 @@ void DG_Init(void)
 	int flags = fcntl(STDOUT_FILENO, F_GETFL);
 	if (flags < 0 || fcntl(STDOUT_FILENO, F_SETFL, flags | O_NONBLOCK) < 0)
 		die("cannot make frame output nonblocking");
+	if (mouse_enabled) {
+		const char *mouse_hello = "\033[?1000s\033[?1002s\033[?1003s\033[?1006s\033[?1004s\033[?1006h\033[?1003h\033[?1004h";
+		ssize_t written = write(STDOUT_FILENO, mouse_hello, strlen(mouse_hello));
+		(void)written;
+	}
 	measure();
 }
 
@@ -770,6 +848,7 @@ int main(int argc, char **argv)
 	// Our own arguments are read before doomgeneric sees them; it ignores what
 	// it does not know, so they are simply passed through.
 	for (int i = 1; i < argc; i++) {
+		if (strcmp(argv[i], "-nomouse") == 0) mouse_enabled = 0;
 		if (strcmp(argv[i], "-cells") == 0) force_cells = 1;
 		// `-release <ms>`: how long a lone press holds a key down. Raise it above
 		// your terminal's repeat delay if holding a direction still stutters; lower

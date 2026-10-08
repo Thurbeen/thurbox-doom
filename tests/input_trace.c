@@ -50,6 +50,13 @@ void __wrap_G_Ticker(void)
         setvbuf(ticks, NULL, _IONBF, 0);
     }
     __real_G_Ticker();
+    const char *player_path = getenv("DOOM_MOUSE_PLAYER_TRACE");
+    if (player_path) {
+        static FILE *player;
+        if (!player) { player = fopen(player_path, "w"); if (!player) abort(); setvbuf(player, NULL, _IONBF, 0); }
+        ticcmd_t *cmd = &players[consoleplayer].cmd;
+        fprintf(player, "%u %u %d %d\n", DG_GetTicksMs(), cmd->buttons, cmd->forwardmove, cmd->sidemove);
+    }
     fprintf(ticks, "%u %u\n", DG_GetTicksMs(),
             players[consoleplayer].mo ? players[consoleplayer].mo->angle : 0u);
 }
@@ -87,3 +94,18 @@ void __wrap_DG_DrawFrame(void)
     __real_DG_DrawFrame();
     fprintf(frames, "%u %u\n", start, DG_GetTicksMs());
 }
+
+#ifdef DOOM_MOUSE_TRACE_WRAPPER
+boolean __real_G_Responder(event_t *event);
+boolean __wrap_G_Responder(event_t *event)
+{
+    const char *path = getenv("DOOM_MOUSE_TRACE");
+    if (path && event->type == ev_mouse) {
+        static FILE *mouse;
+        if (!mouse) { mouse = fopen(path, "w"); if (!mouse) abort(); setvbuf(mouse, NULL, _IONBF, 0); }
+        fprintf(mouse, "%u %d %d %d\n", DG_GetTicksMs(), event->data1, event->data2, event->data3);
+    }
+    return __real_G_Responder(event);
+}
+
+#endif
