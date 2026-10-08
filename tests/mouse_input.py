@@ -63,12 +63,46 @@ def run(disabled=False):
             send(b'\x1b[<1;53;20M'); assert player()[2]>0,'middle button does not move forward'
             send(b'\x1b[<1;53;20m'); assert player()[2]==0,'forward motion sticks after release'
             print('PASS native fire/strafe buttons retain independent press and release state',flush=True)
+            # A release outside the terminal can be absent from its input stream.
+            send(b'\x1b[<0;53;20M'); before=angle()
+            send(b'\x1b[<35;10;20M')
+            assert not player()[1]&1 and events()[-1][1:]==[0,0,0], 'outside release/re-entry leaves fire held or jumps view'
+            assert angle()==before,'first sample on re-entry turns from stale position'
+            print('PASS missed outside release is recovered without a re-entry turn',flush=True)
+            send(b'\x1b[<35;11;20M'); assert angle()!=before,'motion does not resume after re-entry'
+            before=angle(); send(b'\x1b[<35;99;20M')
+            assert angle()==before,'large pointer discontinuity causes a view jump'
+            print('PASS large pointer jumps re-anchor instead of turning',flush=True)
+            send(b'\x1b[<0;99;20M'); assert player()[1]&1
+            send(b'\x1b[<32;100;20M'); assert not player()[1]&1,'fire stays held at screen boundary'
+            before=angle(); send(b'\x1b[<32;50;20M'); assert angle()==before,'boundary return turns view'
+            assert player()[1]&1, 'returning with left physically held does not resume fire'
+            send(b'\x1b[<0;50;20m')
+            print('PASS screen boundary releases buttons and re-anchors on return',flush=True)
+            send(b'\x1b[<0;50;20M'); send(b'\x1b[<32;0;20M')
+            assert not player()[1]&1,'outside coordinate leaves mouse held'
+            send(b'\x1b[<35;50;20M'); before=angle(); wait(.3)
+            send(b'\x1b[<35;60;20M'); assert angle()==before,'idle re-entry uses stale position'
+            print('PASS outside coordinates and idle re-entry cannot accumulate a turn',flush=True)
+            send(b'\x1b[<0;60;20M'); assert player()[1]&1
+            fcntl.ioctl(master,termios.TIOCSWINSZ,struct.pack('HHHH',40,120,960,640))
+            proc.send_signal(signal.SIGWINCH); wait(.15)
+            assert not player()[1]&1,'resize leaves an old mouse hold active'
+            before=angle(); send(b'\x1b[<35;80;20M'); assert angle()==before,'resize reuses stale mouse coordinates'
+            print('PASS resize releases buttons and clears the pointer anchor',flush=True)
+            # Toggle off, reposition, and toggle back on without a synthetic turn.
+            send(b'\x1b[109;1:1u\x1b[109;1:2u\x1b[109;1:2u\x1b[109;1:3u')
+            before=angle(); send(b'\x1b[<35;50;20M'); assert angle()==before,'disabled mouse still turns'
+            send(b'\x1b[109;1:1u\x1b[109;1:3u'); send(b'\x1b[<35;20;20M')
+            assert angle()==before,'re-enabled mouse turns from its stale anchor'
+            send(b'\x1b[<35;21;20M'); assert angle()!=before,'re-enabled mouse never resumes'
+            print('PASS m toggles mouse for repositioning without a view jump',flush=True)
             send(b'\x1b[<0;53;20M\x1b[119;1:1u'); assert player()[2]>0
             send(b'\x1b[O')
             assert events()[-1][1]==0 and not player()[1]&1 and player()[2]==0,'fire or movement stays held when terminal loses focus'
             print('PASS focus loss releases held mouse buttons',flush=True)
             send(b'\x1b[I\x1b[<35;53;20M')
-            count=len(events()); send(b'\x1b[<999;1;1M\x1b[<0;0;1M\x1b[<0;99999999999999;1M\x1b[<0;+1;1M\x1b[<0;4294967297;1M')
+            count=len(events()); send(b'\x1b[<999;1;1M\x1b[<0;99999999999999;1M\x1b[<0;+1;1M\x1b[<0;4294967297;1M')
             assert len(events())==count,'invalid report reaches engine'
             print('PASS invalid mouse reports are discarded',flush=True)
             wait(.1,False); start=int(time.monotonic()*1000)&0xffffffff; os.write(master,b'\x1b[<0;53;20M'); wait(.15,False)

@@ -121,9 +121,17 @@ static size_t input_length = 0;
 static int input_string = 0, string_escape = 0, string_overflow = 0;
 static uint32_t escape_seen = 0;
 static uint32_t hold_ms = DEFAULT_RELEASE_MS;
-static int mouse_enabled = 1, mouse_position = 0;
+static int mouse_enabled = 1, mouse_tracking = 1, mouse_position = 0;
+static uint32_t mouse_seen;
 static int mouse_x, mouse_y, mouse_dx, mouse_dy, mouse_buttons, mouse_changed;
 
+
+static void release_mouse(void)
+{
+	mouse_position = 0;
+	mouse_buttons = mouse_dx = mouse_dy = 0;
+	mouse_changed = mouse_tracking;
+}
 
 static void on_winch(int signum)
 {
@@ -144,7 +152,7 @@ static void restore_terminal(void)
 	}
 	// Colours off, cursor back, and a clear so the pane is not left holding
 	// half a frame.
-	if (mouse_enabled) {
+	if (mouse_tracking) {
 		// Reset first: some terminals support tracking but ignore xterm's
 		// private-mode save/restore. Then restore modes where supported.
 		const char *mouse_bye = "\033[?1003l\033[?1006l\033[?1004l"
@@ -207,6 +215,7 @@ static void measure(void)
 	}
 	cols = width;
 	rows = height;
+	release_mouse(); // a resized viewport invalidates pointer coordinates
 	int *columns = realloc(col_of, (size_t)cols * sizeof(*col_of));
 	int *lines = realloc(row_of, (size_t)rows * 2 * sizeof(*row_of));
 	if (!columns || !lines) die("out of memory for scaling maps");
@@ -574,6 +583,10 @@ static void terminal_key(unsigned char key, int type, int reported, int identity
 		}
 		return;
 	}
+	if ((key == 'm' || key == 'M') && type == 1 && mouse_tracking && !key_down[key]) {
+		mouse_enabled = !mouse_enabled;
+		release_mouse();
+	}
 	press(key);
 	key_reported[key] = reported;
 }
@@ -630,16 +643,32 @@ static void decode_mouse(const char *parameters, char final)
 		char *end;
 		if (*p < '0' || *p > '9') return;
 		unsigned long value = strtoul(p, &end, 10);
-		if (value > (i ? 16384u : 63u) || (i && !value) ||
+		if (value > (i ? 16384u : 63u) ||
 			*end != (i == 2 ? '\0' : ';')) return;
 		values[i] = (unsigned)value;
 		p = end + 1;
 	}
 	unsigned button = values[0], x = values[1], y = values[2];
 	int which = button & 3;
-	// A motion report never changes the button mask. Map xterm's
-	// left/middle/right order to DOOM's left/right/middle order.
-	if (!(button & 32) && which < 3) {
+	// There is no terminal pointer capture. At/outside a boundary, drop the
+	// anchor and release buttons rather than letting an unseen release stick.
+	if (x <= 1 || y <= 1 || x >= (unsigned)cols || y >= (unsigned)rows) {
+		release_mouse();
+		return;
+	}
+	uint32_t now = DG_GetTicksMs();
+	// A no-button motion is authoritative even if its release happened outside
+	// the terminal. Re-entry must not turn from the old pressed position.
+	if ((button & 32) && which == 3 && mouse_buttons) release_mouse();
+	if (mouse_position && (now - mouse_seen >= 250 ||
+		abs((int)x - mouse_x) > (cols / 4 > 8 ? cols / 4 : 8) ||
+		abs((int)y - mouse_y) > (rows / 4 > 4 ? rows / 4 : 4)))
+		mouse_position = 0;
+	mouse_seen = now;
+	// Motion identifies a held button too, so it can recover a hold after
+	// re-entry. Preserve other held buttons until their own release or a
+	// no-button report. Map xterm's left/middle/right to DOOM's left/right/middle.
+	if (which < 3) {
 		int mask = 1 << (which == 1 ? 2 : which == 2 ? 1 : 0);
 		if (final == 'm') mouse_buttons &= ~mask;
 		else mouse_buttons |= mask;
@@ -680,8 +709,7 @@ static void decode_sequence(void)
 			}
 			memset(physical_key, 0, sizeof(physical_key));
 			memset(physical_count, 0, sizeof(physical_count));
-			mouse_buttons = mouse_dx = mouse_dy = 0;
-			mouse_changed = mouse_enabled;
+			release_mouse();
 		}
 		return;
 	}
@@ -911,7 +939,7 @@ void DG_Init(void)
 	int flags = fcntl(STDOUT_FILENO, F_GETFL);
 	if (flags < 0 || fcntl(STDOUT_FILENO, F_SETFL, flags | O_NONBLOCK) < 0)
 		die("cannot make frame output nonblocking");
-	if (mouse_enabled) {
+	if (mouse_tracking) {
 		const char *mouse_hello = "\033[?1000s\033[?1002s\033[?1003s\033[?1006s\033[?1004s\033[?1006h\033[?1003h\033[?1004h";
 		ssize_t written = write(STDOUT_FILENO, mouse_hello, strlen(mouse_hello));
 		(void)written;
@@ -924,7 +952,7 @@ int main(int argc, char **argv)
 	// Our own arguments are read before doomgeneric sees them; it ignores what
 	// it does not know, so they are simply passed through.
 	for (int i = 1; i < argc; i++) {
-		if (strcmp(argv[i], "-nomouse") == 0) mouse_enabled = 0;
+		if (strcmp(argv[i], "-nomouse") == 0) mouse_enabled = mouse_tracking = 0;
 		if (strcmp(argv[i], "-cells") == 0) force_cells = 1;
 		// `-release <ms>`: how long a lone press holds a key down. Raise it above
 		// your terminal's repeat delay if holding a direction still stutters; lower
