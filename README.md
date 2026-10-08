@@ -72,7 +72,9 @@ emulator:
   carries *characters*, so a port using a terminal graphics protocol (Kitty
   graphics, Sixel) would have nothing to be parsed into.
 - **It diffs frames.** Only cells whose colour changed are emitted, in runs, inside
-  synchronised-output markers. Measured against a full-repaint port on the same WAD
+  synchronised-output markers. Writes are nonblocking: one unfinished frame is
+  retained, and new frames are skipped until it finishes, so a slow reader cannot
+  stop engine ticks or input polling. Measured against a full-repaint port on the same WAD
   and terminal size: **~11 KB a frame rather than ~53 KB**, about 0.7 MB/s rather
   than 3.7.
 - **It synthesises key releases from timing**, which is what makes held keys usable
@@ -134,15 +136,33 @@ A release window shorter than the delay drops a held key half a second into ever
 move, stall, move — which reads as lag and is not. A window longer than the delay makes a
 *tap* carry you for its whole length. One number cannot serve both, so the engine uses two:
 
-- **before any repeat is seen for a key**, the window is `-release` (default **700 ms**,
-  which clears every common delay above);
+- **before repeats begin on each hold**, the window is `-release` (default **700 ms**);
 - **once repeats arrive**, their interval is measured and the window collapses to twice it
   (~100 ms), so letting go stops you promptly.
 
-The cost is one long first tap per key per session — after that the rate is known and taps
-release in ~100 ms too. `engine/src/release_test.c` asserts all of it against a fake clock
-(`cd engine/src && make test`), including the case that made this necessary: a 600 ms delay
-under a 300 ms window releases the key at 301 ms.
+The interval is relearned on every hold. Reusing a previous hold's short interval caused
+later holds to release before their first repeat. A lone tap can therefore remain down
+for 700 ms; rapid taps during that window may merge. Press-only input cannot distinguish
+those taps from a held key. `-release` lets you choose this tradeoff; it does not add a
+delay before the first press reaches the engine. True releases require host event
+dispatch and input-transport changes, as well as terminal support.
+
+`engine/src/release_test.c` checks timing with a fake clock (`cd engine/src && make test`).
+`python3 tests/input_latency.py` runs the real engine in a separate pseudo-terminal and
+records events at its input boundary. On Linux with a 100×40 terminal, the regression
+measured a first movement press at 16 ms before the fix. With output reading paused,
+fire was still unprocessed after 350 ms and arrived at 352 ms when reading resumed.
+After the fix, the same stalled-output case delivered fire in 20–23 ms; subsequent
+holds survived a 600 ms initial repeat delay and released in 112–113 ms after repeats
+stopped. A synthetic 1024-byte repeat backlog delivered a trailing Tab in 94 ms
+on a later run. The test also checks resumed output and resize during a pending frame.
+
+These are engine-side measurements, excluding host dispatch, terminal/SSH latency and
+screen presentation. DOOM simulates at 35 ticks per second; the reference host source
+paces output paints at 33 ms and input paints at 16 ms. Frame presentation can lag even
+when input is already reaching the engine. Startup screen wipes also run without normal
+input polling. Neither terminal release support nor live gameplay was verified by this
+test.
 
 **If holding still feels wrong**, the honest fix is fewer milliseconds of guessing: shorten
 your desktop's repeat delay, which helps every terminal program you use.
@@ -210,7 +230,8 @@ permission. A commercial WAD you supply yourself is your own affair.
 
 ## Checks
 
-`bash scripts/check.sh` runs Lua formatting, engine tests, and the media check.
+`bash scripts/check.sh` runs Lua formatting, engine timing and PTY input tests,
+the media check, and isolated plugin loading.
 The agent-pane integration is exercised by `tests/run.sh --render` in
 thurbox-code-review and by `thurbox-cli plugin check` after installing both plugins.
 `tests/demo_media.sh` checks that the committed demo keeps gameplay in every frame.

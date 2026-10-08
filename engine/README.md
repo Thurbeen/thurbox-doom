@@ -36,7 +36,11 @@ cd engine/src && make test
 Compiles `doomgeneric_thurbox.c` itself against a fake clock and asserts the release
 behaviour — that a held key survives a stock repeat delay, that the window collapses once
 the repeat rate is known, that a tap does not stick, and that `-release` still overrides.
-Seconds, and no doomgeneric objects needed.
+The timing test needs no doomgeneric objects. From the repository root,
+`python3 tests/input_latency.py` builds and runs the real engine in an isolated PTY,
+checking input during output backpressure, repeat delay on a second hold, and
+resumed rendering after resize. It requires Python 3 on a POSIX system and removes
+its scratch files when it exits.
 
 ## Rebuilding it
 
@@ -48,8 +52,8 @@ Needs a C compiler and `make`; nothing else. Built here with
 `cc (GCC) 16.2.1 20260810` and `-O2 -static`.
 
 ```text
-sha256  757c51b1dee12a6fb9ed87cf8d8dc21edcebc8f1524109370d683067ab6801ff  bin/linux-x86_64/doom
-sha256  81658aba7d8a4adf9f48771488200f633110d47471448451e3dfd2966ab72f4e  src/doomgeneric_thurbox.c
+sha256  21b9f29c97b0326757d90c660fbaac6c3aa2fd04db397132606023ed72c30f0f  bin/linux-x86_64/doom
+sha256  8d302bef9d5c672aa0f62a32dbb90b4c62bdfbb01b3f4424191255eebe8642ef  src/doomgeneric_thurbox.c
 ```
 
 A rebuild will not match that hash byte for byte — a different compiler version or
@@ -79,11 +83,15 @@ Three things worth knowing, all in `src/doomgeneric_thurbox.c`:
   surface carries characters, so a terminal graphics protocol would have nothing
   to be parsed into.
 - **It diffs frames.** Only cells whose colours changed are emitted, in runs, with
-  synchronised output around each frame. Measured against a full-repaint port on
+  synchronised output around each frame. Output is nonblocking; an unfinished
+  frame is retained before another is built, so backpressure skips paints rather
+  than blocking game ticks. Measured against a full-repaint port on
   the same WAD and terminal size: **~11 KB a frame instead of ~53 KB**, about
   0.7 MB/s instead of 3.7.
 - **It synthesises key releases from timing.** thurbox cannot deliver them — its
   terminal layer never asks for `REPORT_EVENT_TYPES` and its loop matches on
   press — so a port that waits for a release latches every held key. Here a key is
-  released once it has been quiet for `-release <ms>` (default 90), which is what
-  auto-repeat provides while you hold it.
+  initially held for `-release <ms>` (default 700) on each hold. Once repeats
+  arrive, their interval is learned and the silence window shrinks to twice that
+  interval plus 20 ms, with a 60 ms floor. A tap without repeats can last the full
+  initial window; shortening it requires a matching shorter terminal repeat delay.
