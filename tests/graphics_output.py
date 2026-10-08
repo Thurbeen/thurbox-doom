@@ -7,6 +7,7 @@ from pathlib import Path
 import pty
 import re
 import select
+import signal
 import struct
 import subprocess
 import tempfile
@@ -171,6 +172,20 @@ def run(mode):
             assert fire and fire[0][0] - start_time < 100, 'graphics output blocked keyboard input'
             print(f'PASS {mode} blocked output: fire received in {fire[0][0] - start_time} ms', flush=True)
             wait(.2)
+            start = len(output)
+            fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack('HHHH', 30, 120, 960, 480))
+            proc.send_signal(signal.SIGWINCH)
+            wait(.5)
+            resized = bytes(output[start:])
+            if mode == 'kitty':
+                assert re.search(rb'a=T,[^;]*c=120,r=30', resized), 'Kitty placement did not resize'
+            elif mode == 'sixel':
+                assert b'\x1b[14t' in resized, 'Sixel did not refresh pixel geometry on resize'
+                assert b'\x1bP0;1;0q"1;1;960;480' in resized, 'Sixel viewport did not resize'
+            else:
+                frames = re.findall(rb'\x1b\[\?2026h(.*?)\x1b\[\?2026l', resized, re.DOTALL)
+                assert any(b'\x1b[2J' in f and f.count('▀'.encode()) == 120*30 for f in frames)
+            print(f'PASS {mode} resize uses the new terminal viewport', flush=True)
             # Terminate through the real game menu and verify both protocol modes
             # and image cleanup, rather than relying on tearing down the PTY.
             os.write(master, b'\x1b[?11u')
