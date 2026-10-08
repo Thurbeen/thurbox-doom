@@ -24,4 +24,5 @@ cleanup() {
 }
 trap cleanup EXIT
 make -C engine/src test
+python3 tests/input_latency.py
 bash tests/smoke.sh

@@ -27,10 +27,10 @@
 //     desktop) and the repeat INTERVAL after it (short, ~25-40 ms). One fixed
 //     number cannot serve both — 90 ms lost every held key for half a second, and
 //     600 ms would make a tap carry you across a room. So the window starts at
-//     `-release` (300 ms) and collapses to twice the measured interval as soon as
-//     repeats arrive.
+//     `-release` (700 ms) on each hold and collapses to twice the measured
+//     interval as soon as repeats arrive.
 //
-//     None of this would exist if the kernel asked for `REPORT_EVENT_TYPES`.
+//     Real releases also require host dispatch and transport support.
 //
 //   * NEAREST-NEIGHBOUR SCALING to the terminal's size, recomputed on SIGWINCH,
 //     because the pane is resized by the kernel whenever the layout changes.
@@ -56,15 +56,9 @@
 // How long a lone press keeps a key down, before any auto-repeat has been seen for
 // that key.
 //
-// It has to outlast the terminal's REPEAT DELAY, or a held key falls out of "down"
-// before the first repeat arrives — 90 ms against a 600 ms delay meant half a second
-// of nothing every time you held a direction, which is the bug this replaced. 700 ms
-// clears the common defaults: 500 on GNOME, 600 on KDE, 660 on X11.
-//
-// The obvious objection is that a TAP then carries you for 700 ms, and it does —
-// ONCE per key per session. After the first time a key repeats, its interval is known
-// and the window collapses to twice that (~100 ms), for taps as much as for holds. So
-// the cost is one long first step, and the alternative was not being able to walk.
+// It must outlast the initial repeat delay on EVERY hold. A press-only byte
+// stream cannot distinguish a tap from a hold before repeats begin; -release
+// controls that unavoidable tradeoff. Repeat intervals are learned per hold.
 #define DEFAULT_RELEASE_MS 700
 // A press this soon after the previous one is auto-repeat rather than a new tap.
 #define REPEAT_MAX_GAP_MS 250
@@ -96,6 +90,7 @@ static int row_of[MAX_ROWS * 2];  // pixel row   -> source y
 
 static char *out = NULL;
 static size_t out_size = 0;
+static size_t out_sent = 0, out_length = 0;
 
 static struct event queue[EVENT_QUEUE];
 static int queue_head = 0, queue_tail = 0;
@@ -136,19 +131,22 @@ static void die(const char *message)
 	exit(1);
 }
 
-static void write_all(const char *buffer, size_t length)
+// Finish a pending frame without waiting for the surface reader. Preserve its
+// suffix, including any partial escape sequence, before building another frame.
+static int flush_frame(void)
 {
-	size_t sent = 0;
-	while (sent < length) {
-		ssize_t n = write(STDOUT_FILENO, buffer + sent, length - sent);
+	while (out_sent < out_length) {
+		ssize_t n = write(STDOUT_FILENO, out + out_sent, out_length - out_sent);
 		if (n > 0) {
-			sent += (size_t)n;
+			out_sent += (size_t)n;
 			continue;
 		}
-		if (n < 0 && (errno == EINTR || errno == EAGAIN))
+		if (n < 0 && errno == EINTR)
 			continue;
-		return; // the pane went away; the next tick will notice
+		return 0;
 	}
+	out_sent = out_length = 0;
+	return 1;
 }
 
 // --- geometry ---------------------------------------------------------------
@@ -220,12 +218,14 @@ static char *put_uint(char *at, unsigned value)
 
 void DG_DrawFrame(void)
 {
+	// One pending frame bounds memory and backlog. If the reader is slow, skip
+	// drawing this frame while the game continues ticking and accepting input.
+	if (!flush_frame())
+		return;
+	int clear = resized;
 	if (resized) {
 		resized = 0;
 		measure();
-		// A resize invalidates everything the terminal was showing.
-		out[0] = '\0';
-		write_all("\033[2J", 4);
 	}
 	if (!shadow || cols <= 0 || rows <= 0)
 		return;
@@ -236,6 +236,8 @@ void DG_DrawFrame(void)
 	// kernel's parser handles the mode set like any other; a terminal that does
 	// not know it ignores it.
 	at = put(at, "\033[?2026h");
+	if (clear)
+		at = put(at, "\033[2J");
 
 	int last_fg = -1, last_bg = -1; // what SGR state the stream is in
 	for (int y = 0; y < rows; y++) {
@@ -295,7 +297,8 @@ void DG_DrawFrame(void)
 	}
 	shadow_valid = 1;
 	at = put(at, "\033[?2026l");
-	write_all(out, (size_t)(at - out));
+	out_length = (size_t)(at - out);
+	flush_frame();
 }
 
 // --- time ------------------------------------------------------------------
@@ -342,6 +345,9 @@ static void press(unsigned char key)
 	}
 	key_seen[key] = now;
 	if (!key_down[key]) {
+		// A new hold has its own initial repeat delay. Reusing an old short
+		// interval releases it before the first repeat can arrive.
+		key_gap[key] = 0;
 		key_down[key] = 1;
 		push(1, key);
 	}
@@ -556,7 +562,12 @@ void DG_Init(void)
 	signal(SIGWINCH, on_winch);
 	// ISIG is off, so ctrl+c arrives as a byte rather than a signal; DOOM's own
 	// menu is the way out, and the pane's own chord releases it.
-	write_all("\033[?25l\033[2J", 10);
+	const char *hello = "\033[?25l\033[2J";
+	ssize_t ignored = write(STDOUT_FILENO, hello, strlen(hello));
+	(void)ignored;
+	int flags = fcntl(STDOUT_FILENO, F_GETFL);
+	if (flags < 0 || fcntl(STDOUT_FILENO, F_SETFL, flags | O_NONBLOCK) < 0)
+		die("cannot make frame output nonblocking");
 	measure();
 }
 
