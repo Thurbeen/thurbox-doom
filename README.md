@@ -59,24 +59,26 @@ version:
 
 | | |
 |---|---|
-| binary | `engine/bin/linux-x86_64/doom`, 1.5 MB, statically linked — no runtime, no shared libraries |
-| source | [doomgeneric](https://github.com/ozkl/doomgeneric) at `dcb7a8d`, unmodified, plus `doomgeneric_thurbox.c` |
+| binary | `engine/bin/linux-x86_64/doom`, 1.6 MB, statically linked — no runtime, no shared libraries |
+| source | [doomgeneric](https://github.com/ozkl/doomgeneric) at `dcb7a8d`, plus the terminal frontend, pixel renderers and vendored zlib compression sources |
 | rebuild | `cd engine/src && make` — a C compiler and `make`, nothing else |
-| licence | **GPL-2.0** (`engine/LICENSE`). The pane is MIT; the WAD is Freedoom's BSD |
+| licence | **GPL-2.0** (`engine/LICENSE`), with zlib under its own license. The pane is MIT; the WAD is Freedoom's BSD |
 
 Three things its frontend does deliberately, because a pane is not a terminal
 emulator:
 
-- **It paints cells.** One `▀` per character, top pixel in the foreground and bottom
-  in the background at 24-bit colour — two vertical pixels per cell. A surface
-  carries *characters*, so a port using a terminal graphics protocol (Kitty
-  graphics, Sixel) would have nothing to be parsed into.
+- **It uses the available display.** A thurbox surface carries characters, so it
+  uses RGB half-block cells there. Standalone capability replies select Kitty
+  graphics or Sixel for full framebuffer pixels; `-cells` forces text.
 - **It diffs frames.** Only cells whose colour changed are emitted, in runs, inside
-  synchronised-output markers. Measured against a full-repaint port on the same WAD
+  synchronised-output markers. Writes are nonblocking: one unfinished frame is
+  retained, and new frames are skipped until it finishes, so a slow reader cannot
+  stop engine ticks or input polling. Measured against a full-repaint port on the same WAD
   and terminal size: **~11 KB a frame rather than ~53 KB**, about 0.7 MB/s rather
   than 3.7.
-- **It synthesises key releases from timing**, which is what makes held keys usable
-  here at all — see [Held keys](#held-keys-and-why-this-engine-handles-them).
+- **It requests real key releases** using the Kitty keyboard protocol. A standalone
+  modern terminal can distinguish taps from holds; press-only hosts retain the timing
+  fallback — see [Keyboard input](#keyboard-input-real-releases-and-the-timing-fallback).
 
 You are not stuck with it: point `doom.program` at any DOOM that paints text cells
 and reads its keys from stdin, and the pane frames that instead. A relative path
@@ -115,50 +117,188 @@ Or point it at any IWAD you own — `doom.wad`, `doom2.wad`, `plutonia.wad`. A c
 WAD you bought is yours; shipping one would be somebody else's problem, which is why
 neither is here.
 
-### Held keys, the repeat delay, and the one number that matters
+### Mouse input
 
-thurbox **cannot deliver key-release events** — a kernel limitation with two causes, both
-confirmed upstream: the terminal layer asks for `DISAMBIGUATE_ESCAPE_CODES` and never
-`REPORT_EVENT_TYPES`, and the event loop matches `KeyEventKind::Press`. It is recorded there
-as **D12**. So "held" has to be inferred from auto-repeat, and that inference has a trap in
-it worth understanding, because you will feel it before you read this.
+Standalone play enables SGR mouse reporting for motion, presses and releases.
+Move the pointer horizontally to turn and vertically to move forward/backward.
+DOOM's default buttons are left to fire, right to strafe while moving the mouse,
+and middle to move forward. The Options menu's mouse sensitivity setting applies.
+Multiple motions arriving together are summed, and each button releases independently.
+Press `m` to pause mouse control, reposition the pointer, then press `m` to resume.
+The first sample after resuming anchors the pointer without moving the view.
+Mouse repeats do not toggle the mode again; `-nomouse` disables reporting entirely.
+Losing terminal focus releases held buttons and keys. Normal game exit restores
+saved mouse modes where supported (otherwise disabling capture); `-nomouse` leaves mouse reporting disabled.
 
-Two different silences mean opposite things:
+The terminal reports cell positions within its window, so movement stops at its
+edge; it cannot supply unlimited relative pointer capture. Reaching a boundary
+releases mouse buttons and clears the position anchor. A later no-button motion
+recovers a release that happened outside the terminal; returning with a button
+still held restores that hold. Resize, 250 ms without reports, or jumps larger
+than a quarter of the viewport also discard the old anchor. This conservative
+rule can discard the first movement after a pause or a fast large flick. Use `m`
+for deliberate repositioning: terminals do not reliably report every exit.
+Mouse-wheel reports
+are ignored. The inspected thurbox host handles pointer motion and clicks for its
+own UI instead of forwarding them to this program surface. Mouse play there needs
+a separate host change; this frontend provides standalone mouse support.
 
-```text
-repeat delay     500-660 ms   before the FIRST repeat  (GNOME 500, KDE 600, X11 660)
-repeat interval    25-40 ms   between repeats after it
+`python3 tests/mouse_input.py` runs the real engine in a PTY. Before the fix it
+fails because mouse reporting is never requested. With the fix, three horizontal
+cells turn the actual player 1.055°, subsequent idle ticks do not keep turning,
+and native firing, strafing, forward movement, button releases, focus loss,
+blocked output and normal-exit cleanup are checked. The edge regression failed
+with stuck fire and a stale-position turn before the fix. The optional
+`python3 tests/ghostty_mouse.py` compares physical pointer exit/re-entry against
+commit `b9c556d` on a private Ghostty/Xvfb display: the old version turned 10.55°
+on return, while the fix turned 0° and the physical `m` toggle resumed correctly.
+It does not connect to the operator's display.
+
+[Terminal Doom's input implementation](https://github.com/cryptocode/terminal-doom/blob/35ab605e37e92616417bc901b2762599fc979a72/src/main.zig)
+uses libvaxis pixel positions, relative deltas and a mouse toggle. It also retains
+the previous position and applies acceleration; it does not grab or recenter the
+pointer. Its README explicitly documents terminal capture limits. The toggle
+inspired this frontend's repositioning control; exit/button-state recovery and
+re-entry guards are implemented here without adding Zig/libvaxis dependencies.
+
+### Keyboard input: real releases and the timing fallback
+
+The engine requests [Kitty keyboard protocol](https://sw.kovidgoyal.net/kitty/keyboard-protocol/)
+flags 11: escape disambiguation, event types, and all keys. A reported key stays down
+until its physical release; auto-repeat is not needed to keep it held. Partial input
+sequences survive split reads. Physical aliases such as `w` and Up remain held until
+both release. The terminal's previous keyboard mode is restored on normal game exit.
+
+The frontend also queries Windows Terminal's
+[Win32 input mode](https://github.com/microsoft/terminal/blob/main/doc/specs/%234999%20-%20Improved%20keyboard%20handling%20in%20Conpty.md)
+and enables it only after a supported mode reply. Its virtual-key records supply
+real down/up events, including releases with no character and independent physical
+Shift keys. A mode that was already enabled remains enabled on exit. The protocol
+path is covered by standalone PTY tests; the operator's Windows Terminal version
+and actual end-to-end presentation remain unverified. A host or PTY path that
+strips release records still falls back to timing inference.
+
+`python3 tests/fire_input.py` counts actual pistol ammunition. The original plain
+`f` tap used two rounds because its synthetic 700 ms hold crossed the refire cycle.
+Press-only fire now expires after 60 ms: each tested tap uses one round, while
+real reported holds still fire continuously and stop on release. This short fire
+fallback can pause a legacy hold before desktop auto-repeat starts; `-release`
+continues to control movement keys. The test also checks Win32 tap angles, held
+turning, modifier aliases and mode restoration.
+
+```mermaid
+flowchart LR
+  T[Modern terminal] -->|press / repeat / release| E[Standalone engine]
+  E --> R[Hold until physical release]
+  T --> H[Press-only thurbox host]
+  H -->|legacy bytes| F[Timing fallback]
+  F --> L[Long taps and inferred stopping]
 ```
 
-A release window shorter than the delay drops a held key half a second into every press —
-move, stall, move — which reads as lag and is not. A window longer than the delay makes a
-*tap* carry you for its whole length. One number cannot serve both, so the engine uses two:
+The reference thurbox source inspected at `c8fe7d38` requests only escape disambiguation, dispatches Press,
+and encodes keys without event types. Smooth held controls inside that host require
+a separate host change to request and forward repeat/release events to program
+surfaces. A modern outer terminal alone does not bypass this limitation. The host
+checkout and the installed plugin were not changed by this engine fix.
 
-- **before any repeat is seen for a key**, the window is `-release` (default **700 ms**,
-  which clears every common delay above);
-- **once repeats arrive**, their interval is measured and the window collapses to twice it
-  (~100 ms), so letting go stops you promptly.
+The reported near-90° turn is expected from the old timing fallback, **not a discrete
+turn binding**: one arrow press stays down for 700 ms and accumulates incremental
+turn ticks. In controlled standalone tests it turned 79.1°. Shortening that timeout
+interrupts holds before auto-repeat starts, so it cannot make both taps and holds
+correct. Real releases remove that ambiguity.
 
-The cost is one long first tap per key per session — after that the rate is known and taps
-release in ~100 ms too. `engine/src/release_test.c` asserts all of it against a fake clock
-(`cd engine/src && make test`), including the case that made this necessary: a 600 ms delay
-under a 300 ms window releases the key at 301 ms.
+`python3 tests/input_latency.py` runs the real engine in a local PTY with isolated
+configuration and no monsters. It records input, player angle, simulation ticks,
+draw calls, and changing output frames. Before modern-event support, the modern
+press/release cases fail because those sequences are ignored. After the fix, one
+50 ms tap turned 3.52° and released in 27 ms; a 900 ms hold without repeats stayed
+down, and a longer hold with repeats had a maximum turning-tick gap of 31 ms.
+Engine draw calls averaged 14.30 ms apart; changing output frames averaged 30.82 ms,
+with an 85 ms maximum gap in that run. Draw calls and changing cells are different
+cadences: identical cells are omitted, and DOOM's simulation advances at 35 Hz.
+A larger-screen regression then reproduced slow refresh in the first patch: at
+200×60 cells it delivered only 10 changing frames with a 127 ms mean interval and
+170 ms maximum. Resuming pending writes during the game loop's sleep, as soon as
+stdout becomes writable, raises that to 46 frames with a 28.18 ms mean and 40 ms
+maximum. Output starvation still leaves simulation and input running. These
+measurements exclude the user's display presentation and SSH path.
 
-**If holding still feels wrong**, the honest fix is fewer milliseconds of guessing: shorten
-your desktop's repeat delay, which helps every terminal program you use.
+An optional physical-key test, `python3 tests/ghostty_input.py`, runs Ghostty and
+Xvfb on a separate virtual display, with repeat disabled there. It requires Linux,
+Ghostty, Xvfb, X11/XTest libraries and ffmpeg. Ghostty **1.3.1-arch2 (tip build)**
+was exercised: the same 50 ms physical arrow tap turned 79.1° with the original
+engine and 3.52° with the fix, with physical release received in 8–11 ms. A 900 ms
+hold continued until physical key-up; the original stopped turning near 700 ms.
+The script records the comparison below and removes its temporary terminal/display.
 
-```bash
-# KDE
-kwriteconfig6 --file kcminputrc --group Keyboard --key RepeatDelay 200 && qdbus org.kde.KWin /KWin reconfigure
-# GNOME
-gsettings set org.gnome.desktop.peripherals.keyboard delay 200
-# X11
-xset r rate 200 30
+![The same short arrow tap in Ghostty: original versus modern release handling](media/input-turning.gif)
+
+Other engine failures were reproduced separately before fixing:
+
+| Controlled scenario | Original frontend | Fixed frontend |
+|---|---|---|
+| Second hold, 600 ms initial repeat delay | releases early | stays down |
+| Two Esc taps 150 ms apart | second press discarded | both menu actions arrive |
+| Fire during a 350 ms output stall | arrives at 353 ms after reading resumes | 12 ms |
+| Simulation during the same output stall | 0 ticks | 12 ticks |
+| Tab behind 1024 buffered repeat bytes | 109 ms | 28 ms |
+
+These are single-run measurements at 100×40 cells. A separate fixed 155×40 run
+passed too. The operator reproduced similar lag over SSH in thurbox and standalone,
+then locally without SSH using Windows Terminal and Ghostty. Thus SSH and thurbox
+are not required to reproduce the engine symptoms. The operator's terminal versions
+remain unverified. The operator reported slow Windows Terminal refresh with the
+first PR revision; the larger-screen regression above reproduced a renderer defect,
+but the latest revision still needs Windows Terminal validation; no SSH delay is
+inferred from these reports. Actual manual play still needs the operator's validation.
+
+Standalone resolution is selected from capability replies, without guessing from
+`TERM`. Kitty graphics sends the full **640×400 RGB framebuffer**, compressed with
+zlib, and scales it across the terminal's cells. Sixel uses the terminal's reported
+pixel viewport and the game's palette, with nearest-neighbour scaling. For example,
+the regression decodes an 800×640 Sixel image and verifies it against the original
+framebuffer. If pixel size is unavailable, Sixel uses the native framebuffer size.
+The renderer asks for pixel geometry again after resizing.
+
+The text fallback fills the full cell grid, with RGB colours and two vertical
+samples per cell. A 200×60 pane displays 200×120 text pixels. Resizing triggers a
+full repaint; the regression also covers 600 columns, beyond the old 512-column
+limit. Pixel rendering exposes the existing engine's full detail; it does not add
+a higher-resolution 3D renderer or interpolate the 35 Hz simulation.
+
+To try the latest bundled engine standalone, from this checkout:
+
+```sh
+./engine/bin/linux-x86_64/doom -iwad wad/doom1.wad -warp 1 1
+# Compare the same scene using the thurbox-compatible text path:
+./engine/bin/linux-x86_64/doom -iwad wad/doom1.wad -warp 1 1 -cells
 ```
 
-With a 200 ms delay you can also drop `-release` to `250` in `doom.args` and stopping gets
-sharper still. And if you point `program` at some other DOOM, ask whether it waits for real
-releases: one that does will latch every key here, and no setting fixes that.
+Hold an arrow for a second, release it, tap it briefly, and resize the window.
+Turning should continue through the hold, stop on release, and use the resized
+viewport. `python3 tests/graphics_output.py` decodes both image protocols and
+compares them with real engine frames, checks turning cadence and input during
+blocked image output, and verifies normal-exit cleanup. Ghostty pixel rendering
+was also exercised on a private display; Windows Terminal presentation with this
+revision still needs manual validation. The installed plugin is unchanged.
+
+Other ports keep keyboard handling in their platform frontend too:
+[Terminal Doom](https://github.com/cryptocode/terminal-doom/blob/35ab605e37e92616417bc901b2762599fc979a72/src/main.zig)
+vendors doomgeneric and uses libvaxis key releases;
+[doom-cli](https://github.com/ludocode/doom-cli/blob/018e1edf67a093f8ac48e57591eb934e9bc01b26/doomgeneric/doomgeneric_cli.c)
+infers releases from timing;
+[Kitty DOOM](https://github.com/jserv/kitty-doom/blob/ea5eef12c58f2a76ef9c0b073f6b9605ed332e87/src/input.c)
+uses PureDOOM and schedules 50 ms releases. The checked Terminal Doom versions of
+`doomgeneric.c`, `g_game.c` and `d_loop.c` match this repository byte for byte;
+changing the vendored engine would not replace the frontend input/output handling.
+
+For press-only input the compatibility fallback remains: `-release` defaults to
+700 ms on each movement hold, then shrinks to twice the learned repeat interval plus 20 ms
+(with a 60 ms floor). Movement/use taps may merge; separately received presses still
+reach menus and shortcuts. `make -C engine/src test` checks this fallback against a
+fake clock. Startup screen wipes still suspend ordinary input polling; terminal
+presentation can also lag behind engine state. Use a terminal/path that delivers
+real releases for precise taps and continuous holds.
 
 ### Retracted: `tab` works
 
@@ -210,7 +350,8 @@ permission. A commercial WAD you supply yourself is your own affair.
 
 ## Checks
 
-`bash scripts/check.sh` runs Lua formatting, engine tests, and the media check.
+`bash scripts/check.sh` runs Lua formatting, engine timing and PTY input tests,
+the media check, and isolated plugin loading.
 The agent-pane integration is exercised by `tests/run.sh --render` in
 thurbox-code-review and by `thurbox-cli plugin check` after installing both plugins.
 `tests/demo_media.sh` checks that the committed demo keeps gameplay in every frame.

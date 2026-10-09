@@ -4,12 +4,10 @@
 // Licensed under the GNU General Public License v2, like the doomgeneric and
 // DOOM sources it is linked with. See LICENSE beside this file.
 //
-// It paints CELLS, because that is what a thurbox `surface` carries: the kernel
-// runs this in a real terminal, parses its output with a vt100 parser and copies
-// the resulting grid into the pane's rect. A terminal graphics protocol would
-// have nothing to be parsed into, so every frame here is text — one `▀` per
-// cell, the top pixel in the foreground colour and the bottom in the background,
-// which is two vertical pixels per character.
+// A thurbox surface carries text cells. Standalone terminals can explicitly
+// report Kitty graphics or Sixel support, in which case the full framebuffer is
+// rendered as pixels. Otherwise use one RGB-coloured upper half block per cell,
+// with two vertical samples per character. Pixel renderers live in terminal_graphics.c.
 //
 // Three things in here are decisions rather than plumbing:
 //
@@ -18,25 +16,25 @@
 //     colours changed are emitted, in runs, so a menu costs almost nothing and a
 //     firefight costs what it has to.
 //
-//   * KEY RELEASE BY TIMING, ADAPTIVELY. thurbox cannot deliver key-release
-//     events: its terminal layer asks for `DISAMBIGUATE_ESCAPE_CODES` and never
-//     `REPORT_EVENT_TYPES`, and its event loop matches on press. A port that waits
-//     for a release therefore latches every held key. So "held" is inferred from
-//     auto-repeat, and the window has to straddle two different silences: the
-//     repeat DELAY before the first repeat (long, ~600 ms on a stock KDE or GNOME
-//     desktop) and the repeat INTERVAL after it (short, ~25-40 ms). One fixed
-//     number cannot serve both — 90 ms lost every held key for half a second, and
-//     600 ms would make a tap carry you across a room. So the window starts at
-//     `-release` (300 ms) and collapses to twice the measured interval as soon as
-//     repeats arrive.
+//   * REAL KEY RELEASES. Request Kitty keyboard flags 11 (disambiguation,
+//     event types and all keys), and negotiate Windows Terminal Win32 mode.
+//     Reported holds last until their release,
+//     independent of desktop repeat delay. Keep partial sequences across reads.
+//     A thurbox host must also request and forward release events; a modern
+//     outer terminal alone cannot make them cross a press-only host.
 //
-//     None of this would exist if the kernel asked for `REPORT_EVENT_TYPES`.
+//     Timing inference remains a compatibility fallback for a press-only
+//     stream. Its 700 ms initial window bridges repeat delay but makes a tap
+//     keep turning; once repeats arrive it shrinks to their measured interval.
+//     No timeout can distinguish a tap from a hold before the first repeat.
+//     Press-only fire uses 60 ms to avoid firing twice from a single pistol tap.
 //
 //   * NEAREST-NEIGHBOUR SCALING to the terminal's size, recomputed on SIGWINCH,
 //     because the pane is resized by the kernel whenever the layout changes.
 
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -48,23 +46,17 @@
 
 #include "doomgeneric.h"
 #include "doomkeys.h"
+#include "d_event.h"
+#include "terminal_graphics.h"
 #include "m_argv.h"
 
-#define MAX_COLS 512
-#define MAX_ROWS 256
 #define EVENT_QUEUE 64
 // How long a lone press keeps a key down, before any auto-repeat has been seen for
 // that key.
 //
-// It has to outlast the terminal's REPEAT DELAY, or a held key falls out of "down"
-// before the first repeat arrives — 90 ms against a 600 ms delay meant half a second
-// of nothing every time you held a direction, which is the bug this replaced. 700 ms
-// clears the common defaults: 500 on GNOME, 600 on KDE, 660 on X11.
-//
-// The obvious objection is that a TAP then carries you for 700 ms, and it does —
-// ONCE per key per session. After the first time a key repeats, its interval is known
-// and the window collapses to twice that (~100 ms), for taps as much as for holds. So
-// the cost is one long first step, and the alternative was not being able to walk.
+// It must outlast the initial repeat delay on EVERY hold. A press-only byte
+// stream cannot distinguish a tap from a hold before repeats begin; -release
+// controls that unavoidable tradeoff. Repeat intervals are learned per hold.
 #define DEFAULT_RELEASE_MS 700
 // A press this soon after the previous one is auto-repeat rather than a new tap.
 #define REPEAT_MAX_GAP_MS 250
@@ -85,30 +77,61 @@ static struct termios entry_termios;
 static int termios_saved = 0;
 
 static int cols = 0, rows = 0;
+static int pixel_width = DOOMGENERIC_RESX, pixel_height = DOOMGENERIC_RESY;
+static enum graphics_mode graphics = GRAPHICS_CELLS;
+static int force_cells = 0;
 static volatile sig_atomic_t resized = 1;
 
 static struct cell *shadow = NULL; // what the terminal is already showing
 static size_t shadow_cells = 0;
 static int shadow_valid = 0;
 
-static int col_of[MAX_COLS];      // cell column -> source x
-static int row_of[MAX_ROWS * 2];  // pixel row   -> source y
+static int *col_of;      // cell column -> source x
+static int *row_of;  // pixel row   -> source y
 
 static char *out = NULL;
 static size_t out_size = 0;
+static size_t out_sent = 0, out_length = 0;
+static pixel_t image_shadow[DOOMGENERIC_RESX * DOOMGENERIC_RESY];
+static int image_valid, image_width, image_height;
 
 static struct event queue[EVENT_QUEUE];
 static int queue_head = 0, queue_tail = 0;
 
 // Last time each DOOM key was seen pressed, and whether we have told DOOM it is
-// down. The release is synthesised from these; see the note at the top.
+// down. For unreported holds the release is synthesised from these.
 static uint32_t key_seen[256];
 // The auto-repeat interval measured for this key, or 0 while unknown. Learned rather
 // than assumed: the rate is the user's setting, and once it is known the release
 // window can be tight instead of conservative.
 static uint32_t key_gap[256];
 static unsigned char key_down[256];
+static unsigned char key_reported[256]; // this hold has real release events
+static int keyboard_events = 0;
+// 0 unknown, -1 unsupported, 1 already enabled, 2 enabled by this frontend.
+static int win32_mode = 0;
+static const char win32_enable[] = "\033[?9001h";
+static size_t win32_sent = sizeof(win32_enable) - 1;
+// ASCII keys, physical modifiers/arrows and 256 Win32 virtual keys. Keep aliases
+// held until their last physical source releases (e.g. w + Up, or r + Shift).
+static uint16_t physical_key[392]; // DOOM key + 1; zero means released
+static unsigned char physical_count[256];
+static char input_sequence[64];
+static size_t input_length = 0;
+static int input_string = 0, string_escape = 0, string_overflow = 0;
+static uint32_t escape_seen = 0;
 static uint32_t hold_ms = DEFAULT_RELEASE_MS;
+static int mouse_enabled = 1, mouse_tracking = 1, mouse_position = 0;
+static uint32_t mouse_seen;
+static int mouse_x, mouse_y, mouse_dx, mouse_dy, mouse_buttons, mouse_changed;
+
+
+static void release_mouse(void)
+{
+	mouse_position = 0;
+	mouse_buttons = mouse_dx = mouse_dy = 0;
+	mouse_changed = mouse_tracking;
+}
 
 static void on_winch(int signum)
 {
@@ -122,9 +145,22 @@ static void restore_terminal(void)
 		tcsetattr(STDIN_FILENO, TCSAFLUSH, &entry_termios);
 		termios_saved = 0;
 	}
+	if (win32_mode == 2) {
+		const char *reset = "\033[?9001l";
+		ssize_t ignored = write(STDOUT_FILENO, reset, strlen(reset));
+		(void)ignored;
+	}
 	// Colours off, cursor back, and a clear so the pane is not left holding
 	// half a frame.
-	const char *bye = "\033[0m\033[?25h\033[2J\033[H";
+	if (mouse_tracking) {
+		// Reset first: some terminals support tracking but ignore xterm's
+		// private-mode save/restore. Then restore modes where supported.
+		const char *mouse_bye = "\033[?1003l\033[?1006l\033[?1004l"
+								"\033[?1000r\033[?1002r\033[?1003r\033[?1006r\033[?1004r";
+		ssize_t ignored = write(STDOUT_FILENO, mouse_bye, strlen(mouse_bye));
+		(void)ignored;
+	}
+	const char *bye = "\033_Ga=d,d=I,i=32,q=2;\033\\\033[?80r\033[<u\033[0m\033[?25h\033[2J\033[H";
 	ssize_t ignored = write(STDOUT_FILENO, bye, strlen(bye));
 	(void)ignored;
 }
@@ -136,19 +172,31 @@ static void die(const char *message)
 	exit(1);
 }
 
-static void write_all(const char *buffer, size_t length)
+// Finish a pending frame without waiting for the surface reader. Preserve its
+// suffix, including any partial escape sequence, before building another frame.
+static int flush_frame(void)
 {
-	size_t sent = 0;
-	while (sent < length) {
-		ssize_t n = write(STDOUT_FILENO, buffer + sent, length - sent);
+	while (out_sent < out_length) {
+		ssize_t n = write(STDOUT_FILENO, out + out_sent, out_length - out_sent);
 		if (n > 0) {
-			sent += (size_t)n;
+			out_sent += (size_t)n;
 			continue;
 		}
-		if (n < 0 && (errno == EINTR || errno == EAGAIN))
+		if (n < 0 && errno == EINTR)
 			continue;
-		return; // the pane went away; the next tick will notice
+		return 0;
 	}
+	out_sent = out_length = 0;
+	// Negotiate between complete frames so a blocked renderer cannot truncate
+	// a mode command or interleave it with an unfinished ANSI image.
+	while (win32_sent < sizeof(win32_enable) - 1) {
+		ssize_t n = write(STDOUT_FILENO, win32_enable + win32_sent,
+						  sizeof(win32_enable) - 1 - win32_sent);
+		if (n > 0) { win32_sent += (size_t)n; continue; }
+		if (n < 0 && errno == EINTR) continue;
+		return 0;
+	}
+	return 1;
 }
 
 // --- geometry ---------------------------------------------------------------
@@ -160,13 +208,19 @@ static void measure(void)
 	if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0 && ws.ws_col > 0 && ws.ws_row > 0) {
 		width = ws.ws_col;
 		height = ws.ws_row;
+		if (ws.ws_xpixel && ws.ws_ypixel) {
+			pixel_width = ws.ws_xpixel;
+			pixel_height = ws.ws_ypixel;
+		}
 	}
-	if (width > MAX_COLS)
-		width = MAX_COLS;
-	if (height > MAX_ROWS)
-		height = MAX_ROWS;
 	cols = width;
 	rows = height;
+	release_mouse(); // a resized viewport invalidates pointer coordinates
+	int *columns = realloc(col_of, (size_t)cols * sizeof(*col_of));
+	int *lines = realloc(row_of, (size_t)rows * 2 * sizeof(*row_of));
+	if (!columns || !lines) die("out of memory for scaling maps");
+	col_of = columns;
+	row_of = lines;
 
 	for (int x = 0; x < cols; x++)
 		col_of[x] = (int)((long)x * DOOMGENERIC_RESX / cols);
@@ -220,22 +274,39 @@ static char *put_uint(char *at, unsigned value)
 
 void DG_DrawFrame(void)
 {
+	// One pending frame bounds memory and backlog. If the reader is slow, skip
+	// drawing this frame while the game continues ticking and accepting input.
+	if (!flush_frame())
+		return;
+	int clear = 0;
 	if (resized) {
 		resized = 0;
+		clear = 1;
 		measure();
-		// A resize invalidates everything the terminal was showing.
-		out[0] = '\0';
-		write_all("\033[2J", 4);
 	}
 	if (!shadow || cols <= 0 || rows <= 0)
 		return;
 
+	if (graphics != GRAPHICS_CELLS) {
+		if (!clear && image_valid && image_width == pixel_width && image_height == pixel_height &&
+		    memcmp(image_shadow, DG_ScreenBuffer, sizeof(image_shadow)) == 0)
+			return;
+		memcpy(image_shadow, DG_ScreenBuffer, sizeof(image_shadow));
+		image_valid = 1;
+		image_width = pixel_width; image_height = pixel_height;
+		out_length = terminal_image(graphics, DG_ScreenBuffer, cols, rows,
+		                            pixel_width, pixel_height, clear, &out, &out_size);
+		flush_frame();
+		return;
+	}
 	const pixel_t *screen = DG_ScreenBuffer;
 	char *at = out;
 	// Synchronised output, so a partially-written frame is never painted. The
 	// kernel's parser handles the mode set like any other; a terminal that does
 	// not know it ignores it.
 	at = put(at, "\033[?2026h");
+	if (clear)
+		at = put(at, "\033[2J");
 
 	int last_fg = -1, last_bg = -1; // what SGR state the stream is in
 	for (int y = 0; y < rows; y++) {
@@ -295,7 +366,8 @@ void DG_DrawFrame(void)
 	}
 	shadow_valid = 1;
 	at = put(at, "\033[?2026l");
-	write_all(out, (size_t)(at - out));
+	out_length = (size_t)(at - out);
+	flush_frame();
 }
 
 // --- time ------------------------------------------------------------------
@@ -309,16 +381,38 @@ uint32_t DG_GetTicksMs(void)
 
 void DG_SleepMs(uint32_t ms)
 {
-	struct timespec want;
-	want.tv_sec = ms / 1000;
-	want.tv_nsec = (long)(ms % 1000) * 1000000L;
-	nanosleep(&want, NULL);
+	// A partial frame must not wait another game-loop sleep for each PTY
+	// bufferful. Use idle time to finish it as soon as the reader makes room,
+	// while preserving the original sleep deadline and nonblocking writes.
+	uint32_t start = DG_GetTicksMs();
+	for (;;) {
+		uint32_t elapsed = DG_GetTicksMs() - start;
+		if (elapsed >= ms)
+			return;
+		struct pollfd output = {STDOUT_FILENO, POLLOUT, 0};
+		int pending = out_sent < out_length || win32_sent < sizeof(win32_enable) - 1;
+		int ready = poll(&output, pending ? 1 : 0, (int)(ms - elapsed));
+		if (ready > 0) {
+			if (!(output.revents & POLLOUT))
+				return;
+			flush_frame();
+		} else if (ready == 0 || errno != EINTR) {
+			return;
+		}
+	}
 }
 
 // --- input -----------------------------------------------------------------
 
 static void push(int pressed, unsigned char key)
 {
+	// A buffered repeat burst needs one down event, not a queue full of the
+	// same event. Separately polled presses still reach menus and shortcuts.
+	if (pressed && queue_head != queue_tail) {
+		int previous = (queue_tail + EVENT_QUEUE - 1) % EVENT_QUEUE;
+		if (queue[previous].pressed && queue[previous].key == key)
+			return;
+	}
 	int next = (queue_tail + 1) % EVENT_QUEUE;
 	if (next == queue_head)
 		return; // full: dropping is better than blocking the game
@@ -341,10 +435,19 @@ static void press(unsigned char key)
 			key_gap[key] = gap;
 	}
 	key_seen[key] = now;
-	if (!key_down[key]) {
+	key_reported[key] = 0;
+	int was_down = key_down[key];
+	if (!was_down) {
+		// A new hold has its own initial repeat delay. Reusing an old short
+		// interval releases it before the first repeat can arrive.
+		key_gap[key] = 0;
 		key_down[key] = 1;
-		push(1, key);
 	}
+	// DOOM's menu and automap consume keydown events, not held-key state.
+	// Preserve each incoming press even while its inferred hold is active.
+	// Shift is counted by I_GetEvent, so only its initial transition is sent.
+	if (!was_down || key != KEY_RSHIFT)
+		push(1, key);
 }
 
 // How long this key may stay down without another press.
@@ -357,6 +460,9 @@ static void press(unsigned char key)
 static uint32_t window_for(unsigned char key)
 {
 	uint32_t window;
+	// A press-only fire tap must not span the pistol's refire cycle. Modern
+	// reported holds bypass expiration entirely and retain automatic fire.
+	if (key == KEY_FIRE) return MIN_RELEASE_MS;
 	if (key_gap[key] == 0)
 		return hold_ms;
 	window = key_gap[key] * 2 + 20;
@@ -368,36 +474,30 @@ static uint32_t window_for(unsigned char key)
 }
 
 // Map one byte, or an escape sequence already recognised by the caller.
-static void map_byte(unsigned char c)
+static int key_for_byte(unsigned char c)
 {
 	switch (c) {
+	case 033:
+		return KEY_ESCAPE;
 	case '\r':
 	case '\n':
-		press(KEY_ENTER);
-		return;
+		return KEY_ENTER;
 	case '\t':
-		press(KEY_TAB);
-		return;
+		return KEY_TAB;
 	case 0x7f:
 	case 0x08:
-		press(KEY_BACKSPACE);
-		return;
+		return KEY_BACKSPACE;
 	case ' ':
-		press(KEY_USE);
-		return;
+		return KEY_USE;
 	case ',':
-		press(KEY_STRAFE_L);
-		return;
+		return KEY_STRAFE_L;
 	case '.':
-		press(KEY_STRAFE_R);
-		return;
+		return KEY_STRAFE_R;
 	case '+':
 	case '=':
-		press(KEY_EQUALS);
-		return;
+		return KEY_EQUALS;
 	case '-':
-		press(KEY_MINUS);
-		return;
+		return KEY_MINUS;
 	default:
 		break;
 	}
@@ -406,109 +506,377 @@ static void map_byte(unsigned char c)
 	switch (c) {
 	case 'w':
 	case 'W':
-		press(KEY_UPARROW);
-		return;
+		return KEY_UPARROW;
 	case 's':
 	case 'S':
-		press(KEY_DOWNARROW);
-		return;
+		return KEY_DOWNARROW;
 	case 'a':
 	case 'A':
-		press(KEY_STRAFE_L);
-		return;
+		return KEY_STRAFE_L;
 	case 'd':
 	case 'D':
-		press(KEY_STRAFE_R);
-		return;
+		return KEY_STRAFE_R;
 	case 'q':
 	case 'Q':
-		press(KEY_LEFTARROW);
-		return;
+		return KEY_LEFTARROW;
 	case 'e':
 	case 'E':
-		press(KEY_RIGHTARROW);
-		return;
+		return KEY_RIGHTARROW;
 	case 'f':
 	case 'F':
-		press(KEY_FIRE);
-		return;
+		return KEY_FIRE;
 	case 'r':
 	case 'R':
-		press(KEY_RSHIFT); // run, since a bare shift never reaches us
-		return;
+		return KEY_RSHIFT;
 	default:
 		break;
 	}
 	if (c >= '0' && c <= '9') {
-		press(c);
-		return;
+		return c;
 	}
 	// Any other control byte is a fire: `ctrl` is DOOM's own fire key and a
 	// terminal hands us the control code rather than the modifier.
 	if (c < 32) {
-		press(KEY_FIRE);
-		return;
+		return KEY_FIRE;
 	}
 	if (c < 128)
-		press(c); // cheats, y/n prompts, and anything DOOM reads as a letter
+		return c; // cheats, y/n prompts, and anything DOOM reads as a letter
+	return -1;
+}
+
+static void terminal_key(unsigned char key, int type, int reported, int identity);
+
+static void map_byte(unsigned char c)
+{
+	int key = key_for_byte(c);
+	if (key >= 0)
+		terminal_key((unsigned char)key, 1, keyboard_events,
+		             c >= 'A' && c <= 'Z' ? c + ('a' - 'A') : c);
+}
+
+// Kitty keyboard protocol: event types 1/2/3 are press/repeat/release.
+// https://sw.kovidgoyal.net/kitty/keyboard-protocol/
+static void terminal_key(unsigned char key, int type, int reported, int identity)
+{
+	if (reported && identity >= 0) {
+		uint16_t *source = &physical_key[identity];
+		if (type == 3) {
+			if (*source) {
+				key = (unsigned char)(*source - 1);
+				*source = 0;
+				if (--physical_count[key])
+					return;
+			} else if (physical_count[key]) {
+				return;
+			}
+		} else if (!*source) {
+			*source = (uint16_t)key + 1;
+			physical_count[key]++;
+		} else {
+			key = (unsigned char)(*source - 1);
+		}
+	}
+	if (type == 3) {
+		if (key_down[key]) {
+			key_down[key] = key_reported[key] = 0;
+			push(0, key);
+		}
+		return;
+	}
+	if ((key == 'm' || key == 'M') && type == 1 && mouse_tracking && !key_down[key]) {
+		mouse_enabled = !mouse_enabled;
+		release_mouse();
+	}
+	press(key);
+	key_reported[key] = reported;
+}
+
+// Windows Terminal's win32-input-mode carries physical down/up records.
+// https://github.com/microsoft/terminal/blob/main/doc/specs/%234999%20-%20Improved%20keyboard%20handling%20in%20Conpty.md
+static void decode_win32(const char *parameters)
+{
+	unsigned values[6] = {0, 0, 0, 0, 0, 1};
+	const char *p = parameters;
+	for (int i = 0; i < 6 && *p; i++) {
+		char *end;
+		if (*p == ';') { p++; continue; }
+		if (*p < '0' || *p > '9') return;
+		unsigned long value = strtoul(p, &end, 10);
+		if (value > 65535 || (*end && (*end != ';' || i == 5))) return;
+		values[i] = (unsigned)value;
+		p = *end ? end + 1 : end;
+	}
+	if (*p || values[0] > 255 || values[3] > 1 || !values[5]) return;
+	unsigned vk = values[0], character = values[2];
+	int key = -1;
+	switch (vk) {
+	case 37: key = KEY_LEFTARROW; break;
+	case 38: key = KEY_UPARROW; break;
+	case 39: key = KEY_RIGHTARROW; break;
+	case 40: key = KEY_DOWNARROW; break;
+	case 16: case 160: case 161: key = KEY_RSHIFT; break;
+	case 17: case 162: case 163: key = KEY_FIRE; break;
+	default:
+		if (!character && vk >= 'A' && vk <= 'Z') character = vk + ('a' - 'A');
+		else if (!character && ((vk >= '0' && vk <= '9') || vk == 8 || vk == 9 ||
+								  vk == 13 || vk == 27 || vk == 32)) character = vk;
+		if (character && character < 128) key = key_for_byte((unsigned char)character);
+		break;
+	}
+	int identity = 136 + (int)vk;
+	// Generic VK_SHIFT/VK_CONTROL still distinguish their physical sides.
+	if (vk == 16) identity = 136 + (values[1] == 54 ? 161 : 160);
+	if (vk == 17) identity = 136 + ((values[4] & 256) ? 163 : 162);
+	if (key >= 0 || (!values[3] && physical_key[identity]))
+		terminal_key((unsigned char)(key < 0 ? 0 : key), values[3] ? 1 : 3, 1, identity);
+}
+
+// SGR all-motion reports give absolute cell positions and separate releases.
+// Accumulate motion within a read: G_Responder replaces, rather than adds, its
+// mouse delta, so posting each report would lose all but the last one.
+static void decode_mouse(const char *parameters, char final)
+{
+	if (!mouse_enabled || (final != 'M' && final != 'm')) return;
+	unsigned values[3];
+	const char *p = parameters + 1;
+	for (int i = 0; i < 3; i++) {
+		char *end;
+		if (*p < '0' || *p > '9') return;
+		unsigned long value = strtoul(p, &end, 10);
+		if (value > (i ? 16384u : 63u) ||
+			*end != (i == 2 ? '\0' : ';')) return;
+		values[i] = (unsigned)value;
+		p = end + 1;
+	}
+	unsigned button = values[0], x = values[1], y = values[2];
+	int which = button & 3;
+	// There is no terminal pointer capture. At/outside a boundary, drop the
+	// anchor and release buttons rather than letting an unseen release stick.
+	if (x <= 1 || y <= 1 || x >= (unsigned)cols || y >= (unsigned)rows) {
+		release_mouse();
+		return;
+	}
+	uint32_t now = DG_GetTicksMs();
+	// A no-button motion is authoritative even if its release happened outside
+	// the terminal. Re-entry must not turn from the old pressed position.
+	if ((button & 32) && which == 3 && mouse_buttons) release_mouse();
+	if (mouse_position && (now - mouse_seen >= 250 ||
+		abs((int)x - mouse_x) > (cols / 4 > 8 ? cols / 4 : 8) ||
+		abs((int)y - mouse_y) > (rows / 4 > 4 ? rows / 4 : 4)))
+		mouse_position = 0;
+	mouse_seen = now;
+	// Motion identifies a held button too, so it can recover a hold after
+	// re-entry. Preserve other held buttons until their own release or a
+	// no-button report. Map xterm's left/middle/right to DOOM's left/right/middle.
+	if (which < 3) {
+		int mask = 1 << (which == 1 ? 2 : which == 2 ? 1 : 0);
+		if (final == 'm') mouse_buttons &= ~mask;
+		else mouse_buttons |= mask;
+	}
+	if (mouse_position) {
+		mouse_dx += ((int)x - mouse_x) * 8;
+		mouse_dy += (mouse_y - (int)y) * 16;
+	}
+	mouse_x = (int)x; mouse_y = (int)y;
+	mouse_position = mouse_changed = 1;
+}
+
+static void decode_sequence(void)
+{
+	char final = input_sequence[input_length - 1];
+	input_sequence[input_length - 1] = '\0';
+	char *parameters = input_sequence + 2;
+	if (input_sequence[1] == '[' && final == '_' && *parameters != '?') {
+		decode_win32(parameters);
+		return;
+	}
+	if (input_sequence[1] == '[' && final == 'y' && !strncmp(parameters, "?9001;", 6)) {
+		char *end;
+		unsigned long state = strtoul(parameters + 6, &end, 10);
+		if (win32_mode == 0 && end != parameters + 6 && !strcmp(end, "$") && state <= 4) {
+			win32_mode = state == 2 ? 2 : state == 1 || state == 3 ? 1 : -1;
+			if (win32_mode == 2) win32_sent = 0;
+		}
+		return;
+	}
+	if (input_sequence[1] == '[' && !*parameters && (final == 'I' || final == 'O')) {
+		mouse_position = 0;
+		if (final == 'O') {
+			// Key/button releases can happen outside the terminal window.
+			for (int key = 0; key < 256; key++) {
+				if (key_down[key]) push(0, (unsigned char)key);
+				key_down[key] = key_reported[key] = 0;
+			}
+			memset(physical_key, 0, sizeof(physical_key));
+			memset(physical_count, 0, sizeof(physical_count));
+			release_mouse();
+		}
+		return;
+	}
+	if (input_sequence[1] == '[' && *parameters == '<') {
+		decode_mouse(parameters, final);
+		return;
+	}
+	if (!force_cells && final == 'c' && *parameters == '?') {
+		for (char *p = parameters + 1; *p;) {
+			char *end;
+			unsigned long attribute = strtoul(p, &end, 10);
+			if (end == p || (*end && *end != ';')) return;
+			if (attribute == 4 && graphics != GRAPHICS_KITTY) {
+				graphics = GRAPHICS_SIXEL;
+				resized = 1;
+			}
+			p = *end ? end + 1 : end;
+		}
+		return;
+	}
+	if (final == 't') {
+		unsigned h, w; int consumed = 0;
+		if (sscanf(parameters, "4;%u;%u%n", &h, &w, &consumed) == 2 &&
+		    parameters[consumed] == '\0' && w && h && w <= 16384 && h <= 16384) {
+			pixel_width = (int)w; pixel_height = (int)h;
+		}
+		return;
+	}
+	if (input_sequence[1] == '[' && *parameters == '?' && final == 'u') {
+		char *end;
+		unsigned long flags = strtoul(parameters + 1, &end, 10);
+		if (end != parameters + 1 && *end == '\0')
+			keyboard_events = (flags & 2) != 0;
+		return;
+	}
+	if (*parameters == '?' || *parameters == '>' || *parameters == '<')
+		return;
+	int type = 1, reported = keyboard_events;
+	char *modifiers = strchr(parameters, ';');
+	unsigned long mods = 1;
+	if (modifiers) {
+		char *end;
+		mods = strtoul(modifiers + 1, &end, 10);
+		if (modifiers[1] < '0' || modifiers[1] > '9' || end == modifiers + 1 || mods == 0 || mods > 256)
+			return;
+		if (*end == ':') {
+			char *event_end;
+			long event = strtol(end + 1, &event_end, 10);
+			if (event_end == end + 1 || (*event_end != '\0' && *event_end != ';') || event < 1 || event > 3)
+				return;
+			type = (int)event;
+			reported = 1;
+		} else if (*end != '\0' && *end != ';') {
+			return;
+		}
+	}
+	int key = -1, identity = -1;
+	if (final >= 'A' && final <= 'D' && *parameters) {
+		char *end;
+		if (strtoul(parameters, &end, 10) != 1 || (*end != '\0' && *end != ';'))
+			return;
+	}
+	switch (final) {
+	case 'A': key = KEY_UPARROW; identity = 132; break;
+	case 'B': key = KEY_DOWNARROW; identity = 133; break;
+	case 'C': key = KEY_RIGHTARROW; identity = 134; break;
+	case 'D': key = KEY_LEFTARROW; identity = 135; break;
+	case 'u': {
+		if (input_sequence[1] != '[' || *parameters < '0' || *parameters > '9')
+			return;
+		char *end;
+		unsigned long code = strtoul(parameters, &end, 10);
+		if (*end != '\0' && *end != ';')
+			return;
+		if (code < 128) {
+			key = key_for_byte((unsigned char)code);
+			identity = code >= 'A' && code <= 'Z' ? (int)code + ('a' - 'A') : (int)code;
+		}
+		// Bare modifiers are available when all keys are reported.
+		else if (code == 57441 || code == 57447) {
+			key = KEY_RSHIFT;
+			identity = code == 57441 ? 128 : 129;
+		} else if (code == 57442 || code == 57448) {
+			key = KEY_FIRE;
+			identity = code == 57442 ? 130 : 131;
+		}
+		if (((mods - 1) & 4) && code >= 'a' && code <= 'z')
+			key = KEY_FIRE;
+		break;
+	}
+	default: return;
+	}
+	if (key >= 0)
+		terminal_key((unsigned char)key, type, reported, identity);
 }
 
 static void read_input(void)
 {
 	unsigned char buffer[256];
 	ssize_t n = read(STDIN_FILENO, buffer, sizeof(buffer));
-	if (n <= 0)
-		return;
 	for (ssize_t i = 0; i < n; i++) {
-		if (buffer[i] == 033) {
-			// CSI or SS3 arrow, or a bare escape for the menu.
-			if (i + 2 < n && (buffer[i + 1] == '[' || buffer[i + 1] == 'O')) {
-				unsigned char final = buffer[i + 2];
-				int handled = 1;
-				switch (final) {
-				case 'A':
-					press(KEY_UPARROW);
-					break;
-				case 'B':
-					press(KEY_DOWNARROW);
-					break;
-				case 'C':
-					press(KEY_RIGHTARROW);
-					break;
-				case 'D':
-					press(KEY_LEFTARROW);
-					break;
-				default:
-					handled = 0;
-					break;
+		unsigned char c = buffer[i];
+		if (input_string) {
+			if (input_length < sizeof(input_sequence) - 1)
+				input_sequence[input_length++] = (char)c;
+			else
+				string_overflow = 1;
+			if (string_escape && c == '\\') {
+				if (!string_overflow) {
+					input_sequence[input_length - 2] = '\0';
+					if (!force_cells && strcmp(input_sequence, "\033_Gi=31;OK") == 0) {
+						graphics = GRAPHICS_KITTY;
+						resized = 1;
+					}
 				}
-				if (handled) {
-					i += 2;
-					continue;
-				}
-				// Something longer we do not read: skip to its final byte
-				// rather than feeding the parameters to DOOM as keystrokes.
-				ssize_t j = i + 2;
-				while (j < n && !(buffer[j] >= 0x40 && buffer[j] <= 0x7e))
-					j++;
-				i = j;
-				continue;
+				input_string = input_length = string_escape = string_overflow = 0;
+			} else {
+				string_escape = c == 033;
 			}
-			press(KEY_ESCAPE);
 			continue;
 		}
-		map_byte(buffer[i]);
+		if (input_length == 1 && c == '_') {
+			input_sequence[input_length++] = (char)c;
+			input_string = 1;
+			continue;
+		}
+		if (input_length == 1 && c != '[' && c != 'O') {
+			press(KEY_ESCAPE);
+			input_length = 0;
+		}
+		if (c == 033) {
+			input_sequence[0] = c;
+			input_length = 1;
+			escape_seen = DG_GetTicksMs();
+			continue;
+		}
+		if (!input_length) {
+			map_byte(c);
+			continue;
+		}
+		if (input_length >= sizeof(input_sequence) - 1) {
+			// Discard an oversized report through its final byte; its numeric
+			// parameters must never become weapon presses or cheat characters.
+			input_length = (c >= 0x40 && c <= 0x7e) ? 0 : sizeof(input_sequence);
+			continue;
+		}
+		input_sequence[input_length++] = (char)c;
+		if (input_length > 2 && c >= 0x40 && c <= 0x7e) {
+			decode_sequence();
+			input_length = 0;
+		}
+	}
+	// A lone legacy Esc is ambiguous with a sequence prefix. Give split PTY
+	// reads a short opportunity to complete; modern Esc is unambiguous CSI 27u.
+	if (input_length == 1 && DG_GetTicksMs() - escape_seen >= 25) {
+		press(KEY_ESCAPE);
+		input_length = 0;
 	}
 }
 
-// Release anything that has been quiet long enough. This is the whole of the
-// held-key story: auto-repeat keeps a held key arriving, so silence means it
-// went up.
+// Only unreported holds expire. Real release events own modern-keyboard holds,
+// so a long repeat delay cannot interrupt them and a tap stops on key-up.
 static void expire_keys(void)
 {
 	uint32_t now = DG_GetTicksMs();
 	for (int key = 0; key < 256; key++) {
-		if (!key_down[key])
+		if (!key_down[key] || key_reported[key])
 			continue;
 		if (now - key_seen[key] < window_for((unsigned char)key))
 			continue;
@@ -523,8 +891,16 @@ int DG_GetKey(int *pressed, unsigned char *key)
 		read_input();
 		expire_keys();
 	}
-	if (queue_head == queue_tail)
+	if (queue_head == queue_tail) {
+		// At most one mouse event per I_GetEvent pass, including when a long
+		// keyboard queue makes us read stdin more than once during that pass.
+		if (mouse_changed) {
+			event_t event = {ev_mouse, mouse_buttons, mouse_dx, mouse_dy, 0};
+			D_PostEvent(&event);
+			mouse_dx = mouse_dy = mouse_changed = 0;
+		}
 		return 0;
+	}
 	*pressed = queue[queue_head].pressed;
 	*key = queue[queue_head].key;
 	queue_head = (queue_head + 1) % EVENT_QUEUE;
@@ -556,7 +932,18 @@ void DG_Init(void)
 	signal(SIGWINCH, on_winch);
 	// ISIG is off, so ctrl+c arrives as a byte rather than a signal; DOOM's own
 	// menu is the way out, and the pane's own chord releases it.
-	write_all("\033[?25l\033[2J", 10);
+	const char *hello = "\033[?25l\033[2J\033[>11u\033[?u"
+	                    "\033[?9001$p\033_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\033\\\033[c\033[14t";
+	ssize_t ignored = write(STDOUT_FILENO, hello, strlen(hello));
+	(void)ignored;
+	int flags = fcntl(STDOUT_FILENO, F_GETFL);
+	if (flags < 0 || fcntl(STDOUT_FILENO, F_SETFL, flags | O_NONBLOCK) < 0)
+		die("cannot make frame output nonblocking");
+	if (mouse_tracking) {
+		const char *mouse_hello = "\033[?1000s\033[?1002s\033[?1003s\033[?1006s\033[?1004s\033[?1006h\033[?1003h\033[?1004h";
+		ssize_t written = write(STDOUT_FILENO, mouse_hello, strlen(mouse_hello));
+		(void)written;
+	}
 	measure();
 }
 
@@ -565,6 +952,8 @@ int main(int argc, char **argv)
 	// Our own arguments are read before doomgeneric sees them; it ignores what
 	// it does not know, so they are simply passed through.
 	for (int i = 1; i < argc; i++) {
+		if (strcmp(argv[i], "-nomouse") == 0) mouse_enabled = mouse_tracking = 0;
+		if (strcmp(argv[i], "-cells") == 0) force_cells = 1;
 		// `-release <ms>`: how long a lone press holds a key down. Raise it above
 		// your terminal's repeat delay if holding a direction still stutters; lower
 		// it if a tap carries you too far. Once repeats are seen the window adapts

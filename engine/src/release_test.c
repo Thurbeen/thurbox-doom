@@ -32,6 +32,7 @@ void doomgeneric_Create(int argc, char **argv)
 	(void)argv;
 }
 void doomgeneric_Tick(void) {}
+void D_PostEvent(event_t *event) { (void)event; }
 
 static int failures = 0;
 
@@ -119,16 +120,16 @@ int main(void)
 	map_byte('f');
 	drained(KEY_FIRE, &down, &up);
 	check(down, "tap: goes down");
-	fake_ms += 299;
+	fake_ms += 59;
 	expire_keys();
 	drained(KEY_FIRE, &down, &up);
-	check(!up, "tap: held for the full window");
+	check(!up, "fire tap: stays down for 59 ms despite -release 300");
 	fake_ms += 2;
 	expire_keys();
 	drained(KEY_FIRE, &down, &up);
-	check(up, "tap: released at 301 ms");
+	check(up, "fire tap: releases at 61 ms before pistol refire");
 
-	// --- a tap AFTER the key's rate is known is short ------------------------
+	// --- a new hold needs its initial repeat delay again ------------------------
 	reset();
 	hold_ms = DEFAULT_RELEASE_MS;
 	map_byte('w');
@@ -140,11 +141,15 @@ int main(void)
 	expire_keys();
 	drained(KEY_UPARROW, &down, &up);
 	check(up, "learned: the held key released promptly");
-	map_byte('w'); // a tap, now that the rate is known
-	fake_ms += 101;
+	map_byte('w');
+	fake_ms += 600;
 	expire_keys();
 	drained(KEY_UPARROW, &down, &up);
-	check(up, "learned: a later TAP releases in ~100 ms, not 700 — the cost is one-off");
+	check(!up, "new hold: an old repeat interval cannot shorten the initial delay");
+	map_byte('w');
+	fake_ms += 40;
+	map_byte('w');
+	check(window_for(KEY_UPARROW) == 100, "new hold: repeats relearn the short release window");
 
 	// --- a slow double tap is not a repeat -----------------------------------
 	reset();

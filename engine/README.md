@@ -1,17 +1,19 @@
 # The engine
 
 DOOM itself, built for a thurbox program pane, plus the complete source it was
-built from. **This directory is GPL-2.0** (see `LICENSE` beside this file); the
-pane in `plugins/` is MIT and the WAD in `wad/` is Freedoom's modified BSD. Three
-licences, three directories, no ambiguity about which covers what.
+built from. **The engine is GPL-2.0** (see `LICENSE` beside this file);
+`src/vendor/zlib/` retains its own zlib license. The
+pane in `plugins/` is MIT and the WAD in `wad/` is Freedoom's modified BSD.
 
 ## What is here
 
 | Path | What |
 |---|---|
-| `bin/linux-x86_64/doom` | a statically linked binary, 1.5M, no shared libraries and no runtime |
+| `bin/linux-x86_64/doom` | a statically linked binary, 1.6M, no shared libraries and no runtime |
 | `src/doomgeneric_thurbox.c` | the frontend written for this pane |
 | `src/` (the rest) | [doomgeneric](https://github.com/ozkl/doomgeneric) at commit `dcb7a8d`, with one marked change (below) |
+| `src/terminal_graphics.c` | negotiated Kitty RGB and Sixel pixel renderers |
+| `src/vendor/zlib/` | unmodified compression sources from verified zlib 1.3.2 |
 | `src/Makefile` | the recipe that produced the binary |
 | `LICENSE` | GNU GPL v2, which DOOM's source carries |
 
@@ -25,7 +27,8 @@ the exact tree this binary was compiled from.
 Upstream probes for `/usr/bin/zenity` and opens a **GUI error box** when DOOM fails —
 which inside a terminal pane is a dialog nobody can see, announced by GTK warnings
 printed over the game. `I_Error`'s message still goes to stderr, where the pane shows
-it. Everything else in `src/` is upstream's, byte for byte.
+it. The other vendored doomgeneric C/header files are upstream's, byte for byte; the
+terminal frontend, pixel renderers, build recipe and zlib sources are listed above.
 
 ## Testing the key timing
 
@@ -33,10 +36,33 @@ it. Everything else in `src/` is upstream's, byte for byte.
 cd engine/src && make test
 ```
 
-Compiles `doomgeneric_thurbox.c` itself against a fake clock and asserts the release
+Compiles the frontend against a fake clock and asserts the release
 behaviour — that a held key survives a stock repeat delay, that the window collapses once
 the repeat rate is known, that a tap does not stick, and that `-release` still overrides.
-Seconds, and no doomgeneric objects needed.
+The timing test needs no game objects. From the repository root,
+`python3 tests/input_latency.py` builds and runs the real engine in an isolated PTY,
+checking input and simulation ticks during output backpressure, tap-turn angle,
+real press/repeat/release events, held-turn continuity, frame cadence, split reads,
+aliases, terminal-mode restoration, full-grid scaling, large-screen cadence, and
+resumed rendering after resize. `python3 tests/graphics_output.py` decodes real engine
+images in both protocols, compares pixel hashes, and verifies cadence, backpressure
+and normal-exit cleanup. `python3 tests/mouse_input.py` checks SGR motion against
+actual player yaw, native mouse controls, independent button releases, focus loss,
+blocked output and terminal-mode restoration. `-nomouse` disables mouse reporting;
+otherwise the frontend requests all motion in cell coordinates.
+`python3 tests/fire_input.py` checks actual pistol ammunition per tap/hold and the
+negotiated Win32 keyboard path, including physical modifiers and mode cleanup. Terminal window
+edges limit pointer travel, and wheel events are ignored. `m` pauses/resumes mouse
+control for repositioning. Boundary, resize, idle and large-jump guards clear stale
+anchors; no-button motion recovers missed releases. These guards intentionally
+ignore the first movement after a pause or a large discontinuity.
+`python3 tests/ghostty_mouse.py` optionally compares physical pointer exit/re-entry
+with the previous bundled frontend, using a private Ghostty/Xvfb display.
+`python3 tests/ghostty_input.py` is the optional physical-key comparison under an
+isolated Ghostty/Xvfb display; it also records `media/input-turning.gif`. This optional
+Linux test needs Ghostty, Xvfb, X11/XTest libraries and ffmpeg. Both tests need
+Python 3 and remove their temporary directories on exit; comparison clips remain
+in the ignored engine build directory.
 
 ## Rebuilding it
 
@@ -48,8 +74,10 @@ Needs a C compiler and `make`; nothing else. Built here with
 `cc (GCC) 16.2.1 20260810` and `-O2 -static`.
 
 ```text
-sha256  757c51b1dee12a6fb9ed87cf8d8dc21edcebc8f1524109370d683067ab6801ff  bin/linux-x86_64/doom
-sha256  81658aba7d8a4adf9f48771488200f633110d47471448451e3dfd2966ab72f4e  src/doomgeneric_thurbox.c
+sha256  03f35bebbc9ad45c77b7222ddb6b3bfc81d3cb0e22245efd2a9dee16db618423  bin/linux-x86_64/doom
+sha256  09838e09575d30496bb9b10405a51374e75e6c41f0cbb7482c9f93faa292a7ea  src/doomgeneric_thurbox.c
+sha256  e080cf8f95586f39faf328cb17f4c3724cb19a9a42d5302ef11b71086a9defb8  src/terminal_graphics.c
+sha256  08f7379017a253d7e5eac2ecd918ebeb08903b0f1a09a253be6aad16f3ea015f  src/terminal_graphics.h
 ```
 
 A rebuild will not match that hash byte for byte — a different compiler version or
@@ -72,18 +100,25 @@ paints text cells and reads keys from stdin.
 
 ## What the frontend does differently
 
-Three things worth knowing, all in `src/doomgeneric_thurbox.c`:
+Three things worth knowing about the frontend:
 
-- **It paints cells.** One `▀` per character, top pixel in the foreground and
-  bottom in the background, 24-bit colour: two vertical pixels per cell. A
-  surface carries characters, so a terminal graphics protocol would have nothing
-  to be parsed into.
+- **It selects a supported renderer.** A thurbox surface uses RGB half-block
+  cells. Standalone capability replies select compressed Kitty RGB images or
+  Sixel images sized to the reported pixel viewport. Both use the complete
+  640×400 framebuffer. `-cells` forces the text path; unsupported probes keep it.
+  The compression-only zlib sources are vendored, so rebuilding still needs only
+  a C compiler and make.
 - **It diffs frames.** Only cells whose colours changed are emitted, in runs, with
-  synchronised output around each frame. Measured against a full-repaint port on
+  synchronised output around each frame. Output is nonblocking; an unfinished
+  frame is retained before another is built and resumes as soon as stdout is
+  writable during game-loop sleep, so backpressure skips paints rather
+  than blocking game ticks. Measured against a full-repaint port on
   the same WAD and terminal size: **~11 KB a frame instead of ~53 KB**, about
   0.7 MB/s instead of 3.7.
-- **It synthesises key releases from timing.** thurbox cannot deliver them — its
-  terminal layer never asks for `REPORT_EVENT_TYPES` and its loop matches on
-  press — so a port that waits for a release latches every held key. Here a key is
-  released once it has been quiet for `-release <ms>` (default 90), which is what
-  auto-repeat provides while you hold it.
+- **It requests real key releases** with Kitty keyboard flags 11 and negotiated
+  Windows Terminal Win32 input mode, and keeps a
+  reported key down until its release, independent of repeat delay. A press-only
+  host must be changed to forward those events. Timing inference is retained only
+  for a legacy byte stream; its 700 ms initial timeout can turn a lone arrow tap
+  through 79.1° and cannot distinguish that tap from a hold. Press-only fire uses
+  a separate 60 ms timeout so one pistol tap does not cross a refire cycle.

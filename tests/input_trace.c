@@ -1,0 +1,111 @@
+// Test-only link wrapper: observe events at the real engine input boundary.
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <time.h>
+#include "doomgeneric.h"
+#include "d_event.h"
+#include "doomkeys.h"
+#include "doomstat.h"
+#include "p_mobj.h"
+
+int __real_DG_GetKey(int *pressed, unsigned char *key);
+int __wrap_DG_GetKey(int *pressed, unsigned char *key)
+{
+    static FILE *trace;
+    if (!trace) {
+        trace = fopen(getenv("DOOM_INPUT_TRACE"), "w");
+        if (!trace) abort();
+        setvbuf(trace, NULL, _IONBF, 0);
+    }
+    int found = __real_DG_GetKey(pressed, key);
+    if (found) fprintf(trace, "%u %d %u\n", DG_GetTicksMs(), *pressed, *key);
+    return found;
+}
+
+extern boolean menuactive;
+boolean __real_M_Responder(event_t *event);
+boolean __wrap_M_Responder(event_t *event)
+{
+    boolean handled = __real_M_Responder(event);
+    if (event->type == ev_keydown && event->data1 == KEY_ESCAPE) {
+        static FILE *menu;
+        if (!menu) {
+            menu = fopen(getenv("DOOM_MENU_TRACE"), "w");
+            if (!menu) abort();
+            setvbuf(menu, NULL, _IONBF, 0);
+        }
+        fprintf(menu, "%u %u\n", DG_GetTicksMs(), menuactive);
+    }
+    return handled;
+}
+
+void __real_G_Ticker(void);
+void __wrap_G_Ticker(void)
+{
+    static FILE *ticks;
+    if (!ticks) {
+        ticks = fopen(getenv("DOOM_TICK_TRACE"), "w");
+        if (!ticks) abort();
+        setvbuf(ticks, NULL, _IONBF, 0);
+    }
+    __real_G_Ticker();
+    const char *player_path = getenv("DOOM_MOUSE_PLAYER_TRACE");
+    if (player_path) {
+        static FILE *player;
+        if (!player) { player = fopen(player_path, "w"); if (!player) abort(); setvbuf(player, NULL, _IONBF, 0); }
+        ticcmd_t *cmd = &players[consoleplayer].cmd;
+        fprintf(player, "%u %u %d %d %d\n", DG_GetTicksMs(), cmd->buttons, cmd->forwardmove, cmd->sidemove, players[consoleplayer].ammo[am_clip]);
+    }
+    fprintf(ticks, "%u %u\n", DG_GetTicksMs(),
+            players[consoleplayer].mo ? players[consoleplayer].mo->angle : 0u);
+}
+
+void __real_DG_DrawFrame(void);
+void __wrap_DG_DrawFrame(void)
+{
+    // Optional pixel hashes let the PTY graphics decoder compare the actual
+    // emitted image with a frame produced by the real engine.
+    const char *pixel_path = getenv("DOOM_PIXEL_TRACE");
+    if (pixel_path) {
+        static FILE *pixels;
+        if (!pixels) {
+            pixels = fopen(pixel_path, "w");
+            if (!pixels) abort();
+            setvbuf(pixels, NULL, _IONBF, 0);
+        }
+        uint32_t rgb = 2166136261u, percent = rgb;
+        for (int i = 0; i < DOOMGENERIC_RESX * DOOMGENERIC_RESY; i++) {
+            for (int shift = 16; shift >= 0; shift -= 8) {
+                unsigned byte = (DG_ScreenBuffer[i] >> shift) & 255;
+                rgb = (rgb ^ byte) * 16777619u;
+                percent = (percent ^ (byte * 100 / 255 * 255 / 100)) * 16777619u;
+            }
+        }
+        fprintf(pixels, "%u %u\n", rgb, percent);
+    }
+    static FILE *frames;
+    if (!frames) {
+        frames = fopen(getenv("DOOM_FRAME_TRACE"), "w");
+        if (!frames) abort();
+        setvbuf(frames, NULL, _IONBF, 0);
+    }
+    uint32_t start = DG_GetTicksMs();
+    __real_DG_DrawFrame();
+    fprintf(frames, "%u %u\n", start, DG_GetTicksMs());
+}
+
+#ifdef DOOM_MOUSE_TRACE_WRAPPER
+boolean __real_G_Responder(event_t *event);
+boolean __wrap_G_Responder(event_t *event)
+{
+    const char *path = getenv("DOOM_MOUSE_TRACE");
+    if (path && event->type == ev_mouse) {
+        static FILE *mouse;
+        if (!mouse) { mouse = fopen(path, "w"); if (!mouse) abort(); setvbuf(mouse, NULL, _IONBF, 0); }
+        fprintf(mouse, "%u %d %d %d\n", DG_GetTicksMs(), event->data1, event->data2, event->data3);
+    }
+    return __real_G_Responder(event);
+}
+
+#endif

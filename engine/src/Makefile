@@ -13,14 +13,22 @@ SRC = dummy.o am_map.o doomdef.o doomstat.o dstrings.o d_event.o d_items.o d_iwa
  p_saveg.o p_setup.o p_sight.o p_spec.o p_switch.o p_telept.o p_tick.o p_user.o r_bsp.o \
  r_data.o r_draw.o r_main.o r_plane.o r_segs.o r_sky.o r_things.o sha1.o sounds.o statdump.o \
  st_lib.o st_stuff.o s_sound.o tables.o v_video.o wi_stuff.o w_checksum.o w_file.o w_main.o \
- w_wad.o z_zone.o w_file_stdc.o i_input.o i_video.o doomgeneric.o doomgeneric_thurbox.o
-OBJS = $(addprefix $(OBJDIR)/, $(SRC))
+ w_wad.o z_zone.o w_file_stdc.o i_input.o i_video.o doomgeneric.o doomgeneric_thurbox.o terminal_graphics.o
+ZLIB_SRC = adler32 crc32 deflate trees zutil compress
+ZLIB_OBJS = $(addprefix $(OBJDIR)/zlib_, $(addsuffix .o, $(ZLIB_SRC)))
+OBJS = $(addprefix $(OBJDIR)/, $(SRC)) $(ZLIB_OBJS)
 
 $(OUTPUT): $(OBJS)
 	$(CC) $(CFLAGS) $(LDFLAGS) $(OBJS) -o $@ $(LIBS)
 
 $(OBJDIR)/%.o: %.c | $(OBJDIR)
 	$(CC) $(CFLAGS) -c $< -o $@
+
+$(OBJDIR)/zlib_%.o: vendor/zlib/%.c | $(OBJDIR)
+	$(CC) $(CFLAGS) -Ivendor/zlib -c $< -o $@
+
+$(OBJDIR)/doomgeneric_thurbox.o $(OBJDIR)/terminal_graphics.o: terminal_graphics.h
+$(ZLIB_OBJS): $(wildcard vendor/zlib/*.h)
 
 $(OBJDIR):
 	mkdir -p $(OBJDIR)
@@ -31,8 +39,8 @@ $(OBJDIR):
 test: release_test
 	./release_test
 
-release_test: release_test.c doomgeneric_thurbox.c
-	$(CC) $(CFLAGS) -I. -o $@ release_test.c
+release_test: release_test.c doomgeneric_thurbox.c terminal_graphics.c terminal_graphics.h $(ZLIB_OBJS)
+	$(CC) $(CFLAGS) -I. -o $@ release_test.c terminal_graphics.c $(ZLIB_OBJS)
 
 clean:
 	rm -rf $(OBJDIR) $(OUTPUT) release_test
