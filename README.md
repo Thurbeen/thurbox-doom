@@ -6,8 +6,9 @@ pane owns F5, the tab strip, and focus. It imports `lib/doom.lua` from this
 package to render and control the program surface. The engine, WADs, and settings
 remain here; the compatibility pane adds no visible focus stop.
 Its action-band Doom entry invokes the agent pane's `doom.open` action, so it
-also opens the tab instead of the old standalone pane. Without code-review
-installed, the same file supplies the earlier standalone pane and F5 binding.
+also opens the tab instead of the old standalone pane. When the installed agent
+pane declares no `doom.open` (no code-review, or a code-review without the Doom
+tab, as on its `main`), the same file supplies the standalone pane and F5 binding.
 
 Install both repositories as cloned plugins:
 
@@ -352,6 +353,8 @@ permission. A commercial WAD you supply yourself is your own affair.
 
 `bash scripts/check.sh` runs Lua formatting, engine timing and PTY input tests,
 the media check, and isolated plugin loading.
+`tests/standalone.sh` loads this pane beside code-review with and without the
+Doom tab and fails unless `doom.open` is declared exactly once.
 The agent-pane integration is exercised by `tests/run.sh --render` in
 thurbox-code-review and by `thurbox-cli plugin check` after installing both plugins.
 `tests/demo_media.sh` checks that the committed demo keeps gameplay in every frame.

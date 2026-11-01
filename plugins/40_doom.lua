@@ -1,8 +1,24 @@
--- Keep standalone Doom available without the companion agent pane.
--- With the companion installed, the pane only supplies settings and a pill
--- that invokes the agent pane's F5 action.
+-- Keep standalone Doom available unless the agent pane has a Doom tab.
+-- With that tab, the pane only supplies settings and a pill that invokes the
+-- agent pane's F5 action.
 local doom = require("thurbox-doom.lib.doom")
-local integrated = pcall(require, "thurbox-code-review.lib.review")
+
+-- The tab is there when the agent pane itself declares "doom.open"; the
+-- code-review plugin alone is not enough, since its main has no Doom tab.
+local function agent_has_doom_tab()
+  local ok, agent = pcall(require, "thurbox-code-review.plugins.20_agent")
+  if not ok or type(agent) ~= "table" then
+    return false
+  end
+  for _, key in ipairs(agent.keys or {}) do
+    if key.action == "doom.open" then
+      return true
+    end
+  end
+  return false
+end
+
+local integrated = agent_has_doom_tab()
 
 local pane = {
   name = "doom",
