@@ -10,7 +10,7 @@ done
 
 luac -p plugins/40_doom.lua
 stylua --check plugins/40_doom.lua
-shellcheck scripts/check.sh tests/smoke.sh tests/demo_media.sh demo/record.sh
+shellcheck scripts/check.sh tests/smoke.sh tests/standalone.sh tests/demo_media.sh demo/record.sh
 bash tests/demo_media.sh
 
 # The engine test writes this executable in the source directory. Keep any
@@ -29,3 +29,4 @@ python3 tests/graphics_output.py
 python3 tests/mouse_input.py
 python3 tests/fire_input.py
 bash tests/smoke.sh
+bash tests/standalone.sh
