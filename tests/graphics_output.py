@@ -91,6 +91,11 @@ def run(mode):
         env = dict(os.environ, DOOM_PIXEL_TRACE=str(scratch/'pixels'), DOOM_FRAME_TRACE=str(scratch/'frames'),
                    DOOM_INPUT_TRACE=str(scratch/'events'), DOOM_TICK_TRACE=str(scratch/'ticks'),
                    DOOM_MENU_TRACE=str(scratch/'menu'))
+        # tmux answers the probes itself, so under it the engine keeps cells
+        # whatever the replies say.
+        env.pop('TMUX', None)
+        if mode == 'tmux':
+            env['TMUX'] = '/tmp/tmux-1000/default,1,0'
         args = ['-cells'] if mode == 'cells' else []
         proc = subprocess.Popen([str(binary), *args, '-iwad', str(ROOT/'wad/doom1.wad'),
                                  '-warp', '1', '1', '-nomonsters', '-config', str(Path(scratch)/'config')],
@@ -118,12 +123,12 @@ def run(mode):
         try:
             wait(.8)
             assert b'a=q' in output and b'\x1b[c' in output, 'missing terminal graphics capability queries'
-            if mode in ['kitty', 'cells']:
+            if mode in ['kitty', 'cells', 'tmux']:
                 # Exercise an APC response split across PTY reads.
                 for part in [b'\x1b_Gi=31;', b'OK\x1b', b'\\']:
                     os.write(master, part)
                     wait(.03)
-            else:
+            if mode in ['sixel', 'tmux']:
                 os.write(master, b'\x1b[?64;4c\x1b[4;640;800t')
             os.write(master, b'\x1b[?11u\x1b[1;1:1C')
             start = len(output)
@@ -133,6 +138,11 @@ def run(mode):
             if mode == 'cells':
                 assert '▀'.encode() in frames and b'a=T' not in frames, 'forced cells unexpectedly selected images'
                 print('PASS -cells preserves text rendering despite Kitty capability response', flush=True)
+            elif mode == 'tmux':
+                assert '▀'.encode() in frames, 'no text frame under tmux'
+                assert b'a=T' not in frames and b'\x1bP0;1;0q' not in frames, \
+                    'tmux capability replies selected images'
+                print('PASS tmux keeps text rendering despite Kitty and Sixel replies', flush=True)
             elif mode == 'kitty':
                 chunks = re.findall(rb'\x1b_G([^;]+);([^\x1b]*)\x1b\\', frames)
                 first = next(i for i, (header, _) in enumerate(chunks) if b'a=T' in header)
@@ -213,5 +223,5 @@ def run(mode):
 
 
 if __name__ == '__main__':
-    for mode in ['kitty', 'sixel', 'cells']:
+    for mode in ['kitty', 'sixel', 'cells', 'tmux']:
         run(mode)

@@ -70,7 +70,8 @@ emulator:
 
 - **It uses the available display.** A thurbox surface carries characters, so it
   uses RGB half-block cells there. Standalone capability replies select Kitty
-  graphics or Sixel for full framebuffer pixels; `-cells` forces text.
+  graphics or Sixel for full framebuffer pixels; `-cells` forces text, and so
+  does running under tmux, whose own replies say nothing about the real viewer.
 - **It diffs frames.** Only cells whose colour changed are emitted, in runs, inside
   synchronised-output markers. Writes are nonblocking: one unfinished frame is
   retained, and new frames are skipped until it finishes, so a slow reader cannot
