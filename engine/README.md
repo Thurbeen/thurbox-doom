@@ -74,8 +74,8 @@ Needs a C compiler and `make`; nothing else. Built here with
 `cc (GCC) 16.2.1 20260810` and `-O2 -static`.
 
 ```text
-sha256  03f35bebbc9ad45c77b7222ddb6b3bfc81d3cb0e22245efd2a9dee16db618423  bin/linux-x86_64/doom
-sha256  09838e09575d30496bb9b10405a51374e75e6c41f0cbb7482c9f93faa292a7ea  src/doomgeneric_thurbox.c
+sha256  3c9555aea28188736b6b59dbb415e2751eff36c95ecdf074a6fe35b2a3db0cfd  bin/linux-x86_64/doom
+sha256  85b8286b1b372140757f9d650bb3dc1fc470f9903ff1781cc5ad7e29172ab2a4  src/doomgeneric_thurbox.c
 sha256  e080cf8f95586f39faf328cb17f4c3724cb19a9a42d5302ef11b71086a9defb8  src/terminal_graphics.c
 sha256  08f7379017a253d7e5eac2ecd918ebeb08903b0f1a09a253be6aad16f3ea015f  src/terminal_graphics.h
 ```
@@ -106,6 +106,8 @@ Three things worth knowing about the frontend:
   cells. Standalone capability replies select compressed Kitty RGB images or
   Sixel images sized to the reported pixel viewport. Both use the complete
   640×400 framebuffer. `-cells` forces the text path; unsupported probes keep it.
+  So does `$TMUX`: tmux answers the probes itself, and a Sixel build reports
+  Sixel whoever is viewing, so a thurbox pane would show a blank image.
   The compression-only zlib sources are vendored, so rebuilding still needs only
   a C compiler and make.
 - **It diffs frames.** Only cells whose colours changed are emitted, in runs, with

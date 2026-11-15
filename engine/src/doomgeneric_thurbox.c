@@ -965,6 +965,12 @@ int main(int argc, char **argv)
 		}
 	}
 
+	// Inside tmux, tmux itself answers the capability probes: every Sixel build
+	// reports Sixel, whoever is viewing. A thurbox pane is a tmux pane whose
+	// viewer draws only characters, so an image there is a blank pane.
+	const char *tmux = getenv("TMUX");
+	if (tmux && *tmux) force_cells = 1;
+
 	doomgeneric_Create(argc, argv);
 	for (;;)
 		doomgeneric_Tick();
