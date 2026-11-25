@@ -21,8 +21,8 @@ jobs:
           sudo apt-get install -y lua5.4 tmux sqlite3 ffmpeg make gcc unzip
 
           mkdir -p "$RUNNER_TEMP/tools"
-          curl -fsSL https://github.com/Thurbeen/thurbox/releases/download/v2.35.3/thurbox-v2.35.3-x86_64-unknown-linux-gnu.tar.gz -o "$RUNNER_TEMP/tools/thurbox.tar.gz"
-          echo "437b69a7ac2885bd36dd1f68858f9dd817c33c663970f9836f6cc3c7f0d340e9  $RUNNER_TEMP/tools/thurbox.tar.gz" | sha256sum -c -
+          curl -fsSL https://github.com/Thurbeen/thurbox/releases/download/v3.24.0/thurbox-v3.24.0-x86_64-unknown-linux-gnu.tar.gz -o "$RUNNER_TEMP/tools/thurbox.tar.gz"
+          echo "0c22145a3bd601095db3abffc041beab2a4907eb88e4f21085e28b48a6432390  $RUNNER_TEMP/tools/thurbox.tar.gz" | sha256sum -c -
           tar -xzf "$RUNNER_TEMP/tools/thurbox.tar.gz" -C "$RUNNER_TEMP/tools"
 
           curl -fsSL https://github.com/JohnnyMorganz/StyLua/releases/download/v2.5.2/stylua-linux-x86_64.zip -o "$RUNNER_TEMP/tools/stylua.zip"

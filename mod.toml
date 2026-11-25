@@ -1,17 +1,17 @@
 # Doom's payload, renderer module, and settings provider for the agent pane.
 #
-# This plugin carries a WAD, so it is installed by CLONING it — the file-by-file
+# This mod carries a WAD, so it is installed by CLONING it — the file-by-file
 # path decodes what it fetches as UTF-8 and would corrupt game data:
 #
-#     thurbox-cli plugin install git+https://github.com/Thurbeen/thurbox-doom
+#     thurbox-cli mod install git+https://github.com/Thurbeen/thurbox-doom
 #
 # The clone lands at `<interface dir>/thurbox-doom/`, keeps its `.git` (so `update`
 # is a fetch and your edits are protected), and `pane.source` below is what names
 # the entry point inside it. Failing a manifest, install takes the single `.lua`
-# under `plugins/`. The lock records the commit, which is why there is nothing to
-# checksum here.
+# under `mods/`, else under `plugins/`. The lock records the commit, which is why
+# there is nothing to checksum here.
 #
-# NOT `thurbox-cli plugin install doom` — a bare name resolves into the thurbox
+# NOT `thurbox-cli mod install doom` — a bare name resolves into the thurbox
 # repository's own examples, which is a different, smaller pane.
 #
 # The linux-x86_64 engine and two WADs ship in this clone. Other platforms can
@@ -19,6 +19,6 @@
 name = "doom"
 description = "DOOM engine, WAD, and settings for the agent pane's Doom tab"
 version = "v0.8.0"
-requires_thurbox = ">=2.35.2"
+requires_thurbox = ">=3.24.0"
 
-pane = { source = "plugins/40_doom.lua", path = "plugins/40_doom.lua" }
+pane = { source = "plugins/40_doom.lua", path = "mods/40_doom.lua" }

@@ -20,8 +20,8 @@ check() {
 
   # Installing seeds the interface's own lib/. The copies below replace the
   # pane, and code-review's agent pane replaces the bundled one.
-  "$CLI" plugin install "$REPO" --text > "$S/install.txt"
-  rm "$S/ui/plugins/40_doom.lua" "$S/ui/plugins/20_agent.lua" "$S/ui/plugins.lock"
+  "$CLI" mod install "$REPO" --text > "$S/install.txt"
+  rm "$S/ui/mods/40_doom.lua" "$S/ui/mods/20_agent.lua" "$S/ui/mods.lock"
   git init -q "$S/ui/thurbox-code-review"
   git -C "$S/ui/thurbox-code-review" fetch -q --depth 1 \
     https://github.com/Thurbeen/thurbox-code-review "$sha"
@@ -29,17 +29,17 @@ check() {
   mkdir -p "$S/ui/thurbox-doom/plugins" "$S/ui/thurbox-doom/lib"
   cp "$REPO/plugins/40_doom.lua" "$S/ui/thurbox-doom/plugins/40_doom.lua"
   cp "$REPO/lib/doom.lua" "$S/ui/thurbox-doom/lib/doom.lua"
-  cat > "$S/ui/plugins.toml" <<'TOML'
-[[plugin]]
+  cat > "$S/ui/mods.toml" <<'TOML'
+[[mod]]
 src = "git+https://github.com/Thurbeen/thurbox-code-review"
 file = "thurbox-code-review/plugins/20_agent.lua"
 
-[[plugin]]
+[[mod]]
 src = "git+https://github.com/Thurbeen/thurbox-doom"
 file = "thurbox-doom/plugins/40_doom.lua"
 TOML
 
-  if ! "$CLI" plugin check --text > "$S/check.txt" 2>&1 ||
+  if ! "$CLI" mod check --text > "$S/check.txt" 2>&1 ||
     grep -Eqi 'doom\.open|claimed by both|failed' "$S/check.txt"; then
     cat "$S/check.txt" >&2
     echo "FAIL: Doom is unreachable beside code-review ${sha:0:7}" >&2

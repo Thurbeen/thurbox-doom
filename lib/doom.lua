@@ -13,9 +13,9 @@ local PANE = "doom"
 
 --- The Doom package's working copy, inside the interface directory.
 ---
---- `thurbox-cli plugin install git+<url>` clones a plugin that carries a payload,
+--- `thurbox-cli mod install git+<url>` clones a mod that carries a payload,
 --- and the clone lands at `<interface dir>/<repository name>/` — so this is the
---- REPOSITORY's name, not the plugin's. It carries the pane, engine and WAD:
+--- REPOSITORY's name, not the mod's. It carries the pane, engine and WAD:
 ---
 ---     <interface dir>/thurbox-doom/engine/bin/linux-x86_64/doom
 ---     <interface dir>/thurbox-doom/wad/doom1.wad
@@ -59,7 +59,7 @@ local PAYLOAD_WAD = "wad/doom1.wad"
 --- The engine builds the Doom package ships, keyed as `thurbox.platform` reports a
 --- machine: `os .. "-" .. arch`.
 ---
---- A list rather than a stat, because a plugin cannot look at the filesystem — so the
+--- A list rather than a stat, because a mod cannot look at the filesystem — so the
 --- pane knows what was committed and can say honestly which machine it has nothing
 --- for, rather than exec'ing a path that may not exist. Building for another platform
 --- is `cd engine/src && make` and dropping the result in `engine/bin/<os>-<arch>/`,
@@ -102,7 +102,7 @@ local RESTART, RELEASE = "doom.restart", "doom.release"
 
 local function doom_available()
   for _, entry in ipairs((thurbox and thurbox.registry and thurbox.registry.settings) or {}) do
-    if entry.plugin == NAME and entry.id == "program" then
+    if entry.mod == NAME and entry.id == "program" then
       return true
     end
   end
@@ -127,7 +127,7 @@ end
 --- Unset resolves to the committed build rather than to a guess — the difference being
 --- that this package knows what it shipped, so either the path is there or the pane can
 --- name the platform it has nothing for. Absolute is honoured as given; relative
---- resolves inside this plugin's own clone, exactly as the WAD does.
+--- resolves inside this mod's own clone, exactly as the WAD does.
 local function program()
   local named = setting("program", "")
   if type(named) == "string" and not named:match("^%s*$") then
@@ -157,7 +157,7 @@ local function args()
       argv[#argv + 1] = word
     end
   end
-  -- An absolute WAD is used as given; anything else is resolved inside this plugin's
+  -- An absolute WAD is used as given; anything else is resolved inside this mod's
   -- own clone, which is what makes the declared default a path a reader can recognise
   -- rather than an empty box. With no interface directory published there is nowhere
   -- for a relative one to resolve against, so the argument is omitted rather than
@@ -192,7 +192,7 @@ end
 ---
 --- Asked rather than probed. A capability is normally withheld by ABSENCE — `run`
 --- is not a function until you are trusted — but a program pane is asked for
---- through `command`, which every plugin has, so there is nothing to be absent.
+--- through `command`, which every mod has, so there is nothing to be absent.
 --- `thurbox.granted` reports the decision instead, and grants nothing.
 local function granted()
   local grants = (thurbox and thurbox.granted) or {}
@@ -202,7 +202,7 @@ end
 --- An error from the last `program` ask, if the kernel published one.
 ---
 --- Worth drawing rather than swallowing: a program that is not on `PATH` fails
---- here, and this plugin cannot check `PATH` itself (no `io`, no `os`). The states
+--- here, and this mod cannot check `PATH` itself (no `io`, no `os`). The states
 --- the kernel owns — nothing started yet, or the program has exited — it draws
 --- inside the surface, which is where they belong.
 local function ask_error()
@@ -281,9 +281,9 @@ end
 
 --- What to draw before the capability has been granted.
 ---
---- The first thing every user of this plugin sees, so it says what would run, how
+--- The first thing every user of this mod sees, so it says what would run, how
 --- the grant is given, and why it is asked for separately. An empty pane here
---- reads as a broken plugin, and the fix is two keystrokes away in a modal the
+--- reads as a broken mod, and the fix is two keystrokes away in a modal the
 --- reader may not know exists.
 local function untrusted(ctx)
   local width = math.max(0, (ctx.width or 0) - 20)
@@ -376,7 +376,7 @@ local function needs_program(ctx)
   if wad then
     children[#children + 1] = line({
       {
-        text = "  the WAD this plugin ships, passed as the last argument:",
+        text = "  the WAD this mod ships, passed as the last argument:",
         style = { fg = theme.muted },
       },
     })
@@ -465,7 +465,7 @@ doom.available = doom_available
 
 doom.render = function(ctx)
   -- Before the grant is relevant: with no program named there is nothing to grant
-  -- a capability FOR, and asking for one would be refused as a plugin error. So
+  -- a capability FOR, and asking for one would be refused as a mod error. So
   -- configuration comes first, and it is one setting.
   if not program() then
     return needs_program(ctx)
@@ -535,7 +535,7 @@ doom.settings = {
   },
   {
     id = "wad",
-    desc = "WAD, passed as the last argument. A relative path resolves inside this plugin's clone",
+    desc = "WAD, passed as the last argument. A relative path resolves inside this mod's clone",
     default = PAYLOAD_WAD,
   },
   {

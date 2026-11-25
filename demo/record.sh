@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Record media/demo.gif: the real thurbox TUI, in its built-in Doom theme, with
-# this plugin installed from the repository's COMMITTED state and F5 pressed.
+# this mod installed from the repository's COMMITTED state and F5 pressed.
 #
 # asciinema records the pty and agg rasterises the cast. tmux presses the keys,
 # so what lands in the cast is the interface reacting to real chords; VHS
@@ -86,29 +86,27 @@ git -C "$P" -c user.email=demo@example.com -c user.name=demo -c commit.gpgsign=f
 
 # Installed the way the README says, from a clone of the committed state.
 git clone -q "$REPO" "$S/src/thurbox-doom"
-"$CLI" plugin install "git+file://$S/src/thurbox-doom" --text >"$S/install.txt"
+"$CLI" mod install "git+file://$S/src/thurbox-doom" --text >"$S/install.txt"
 
 paths=$("$CLI" config show --json | python3 -c '
 import json, sys
 paths = json.load(sys.stdin)["paths"]
-print(paths["ui_dir"]); print(paths["ui_json"]); print(paths["database"])')
-{ IFS= read -r UI_DIR; IFS= read -r UI_JSON; IFS= read -r DB; } <<<"$paths"
+print(paths["ui_dir"]); print(paths["ui_json"]); print(paths["mod_state_json"]); print(paths["database"])')
+{ IFS= read -r UI_DIR; IFS= read -r UI_JSON; IFS= read -r MOD_STATE; IFS= read -r DB; } <<<"$paths"
 
 # The program grant is made in the settings modal and nowhere else, so write
-# what that modal writes: {pin, digest} from plugins.lock, keyed by the
+# what that modal writes: {pin, digest} from mods.lock, keyed by the
 # installed file. The setting warps straight into E1M1 rather than recording
 # the title screen.
-python3 - "$UI_DIR" "$UI_JSON" <<'PY'
+python3 - "$UI_DIR" "$UI_JSON" "$MOD_STATE" <<'PY'
 import json, pathlib, sys, tomllib
 
-ui_dir, out = map(pathlib.Path, sys.argv[1:])
-entry, = tomllib.loads((ui_dir / "plugins.lock").read_text())["plugin"]
+ui_dir, ui_json, mod_state = map(pathlib.Path, sys.argv[1:])
+entry, = tomllib.loads((ui_dir / "mods.lock").read_text())["mod"]
 pane = entry["file"]
 grant = {"pin": f"{entry['src']}@{entry['version']}", "digest": entry["files"][pane]}
-out.write_text(json.dumps({
-    "trusted": {str(ui_dir / pane): grant},
-    "settings": {"doom.args": "-warp 1 1 -iwad"},
-}, indent=2))
+mod_state.write_text(json.dumps({"trusted": {str(ui_dir / pane): grant}}, indent=2))
+ui_json.write_text(json.dumps({"settings": {"doom.args": "-warp 1 1 -iwad"}}, indent=2))
 PY
 
 # The Doom theme is the persisted `active_theme` the Ctrl+Y picker writes, and

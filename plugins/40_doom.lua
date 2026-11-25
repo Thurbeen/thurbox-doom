@@ -4,7 +4,7 @@
 local doom = require("thurbox-doom.lib.doom")
 
 -- The tab is there when the agent pane itself declares "doom.open"; the
--- code-review plugin alone is not enough, since its main has no Doom tab.
+-- code-review mod alone is not enough, since its main has no Doom tab.
 local function agent_has_doom_tab()
   local ok, agent = pcall(require, "thurbox-code-review.plugins.20_agent")
   if not ok or type(agent) ~= "table" then
