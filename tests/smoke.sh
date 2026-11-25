@@ -12,21 +12,21 @@ export XDG_CACHE_HOME="$S/cache" XDG_STATE_HOME="$S/state"
 export THURBOX_CONFIG_DIR="$S/config/thurbox" THURBOX_DATA_DIR="$S/data/thurbox"
 export THURBOX_UI_DIR="$S/ui"
 mkdir -p "$THURBOX_CONFIG_DIR" "$THURBOX_DATA_DIR" "$THURBOX_UI_DIR"
-"$CLI" plugin install "$REPO" --text > "$S/install.txt"
+"$CLI" mod install "$REPO" --text > "$S/install.txt"
 mkdir -p "$S/ui/thurbox-doom/plugins" "$S/ui/thurbox-doom/lib"
 cp "$REPO/plugins/40_doom.lua" "$S/ui/thurbox-doom/plugins/40_doom.lua"
 cp "$REPO/lib/doom.lua" "$S/ui/thurbox-doom/lib/doom.lua"
-rm "$S/ui/plugins/40_doom.lua"
-rm "$S/ui/plugins.lock"
-cat > "$S/ui/plugins.toml" <<'TOML'
-[[plugin]]
+rm "$S/ui/mods/40_doom.lua"
+rm "$S/ui/mods.lock"
+cat > "$S/ui/mods.toml" <<'TOML'
+[[mod]]
 src = "git+https://github.com/Thurbeen/thurbox-doom"
 file = "thurbox-doom/plugins/40_doom.lua"
 TOML
-"$CLI" plugin check --text > "$S/check.txt"
+"$CLI" mod check --text > "$S/check.txt"
 grep -q 'doom' "$S/check.txt"
 if grep -Eqi '(^  ! |claimed by both|failed)' "$S/check.txt"; then
   cat "$S/check.txt" >&2
   exit 1
 fi
-printf 'Standalone Doom loads with F5 and no plugin warnings\n'
+printf 'Standalone Doom loads with F5 and no mod warnings\n'

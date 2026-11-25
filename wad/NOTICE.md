@@ -1,6 +1,6 @@
 # What is in here, and under what terms
 
-Two WADs ship with this plugin. They are **game data, not code**, and they are not
+Two WADs ship with this mod. They are **game data, not code**, and they are not
 under the same terms as each other or as the rest of the repository — the pane is MIT
 and the engine is GPL-2.0, neither of which covers either file below.
 
@@ -19,7 +19,7 @@ most people mean by "DOOM".
 
 It is here because it is what the game is *supposed* to look like. If you would rather
 not carry data under a permission than a licence, `doom.wad` is one setting and
-`freedoom1.wad` is beside it — nothing about the plugin depends on which you use.
+`freedoom1.wad` is beside it — nothing about the mod depends on which you use.
 
 ## `freedoom1.wad` — Freedoom Phase 1, the free alternative
 

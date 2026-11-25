@@ -10,12 +10,12 @@ also opens the tab instead of the old standalone pane. When the installed agent
 pane declares no `doom.open` (no code-review, or a code-review without the Doom
 tab, as on its `main`), the same file supplies the standalone pane and F5 binding.
 
-Install both repositories as cloned plugins:
+Install both repositories as cloned mods:
 
 ```bash
-thurbox-cli plugin install git+https://github.com/Thurbeen/thurbox-code-review
-thurbox-cli plugin install git+https://github.com/Thurbeen/thurbox-doom
-thurbox-cli plugin check
+thurbox-cli mod install git+https://github.com/Thurbeen/thurbox-code-review
+thurbox-cli mod install git+https://github.com/Thurbeen/thurbox-doom
+thurbox-cli mod check
 ```
 
 The code-review README explains how to replace the bundled agent pane. Installing
@@ -83,7 +83,7 @@ emulator:
 
 You are not stuck with it: point `doom.program` at any DOOM that paints text cells
 and reads its keys from stdin, and the pane frames that instead. A relative path
-resolves inside this plugin's clone, so a build of your own at
+resolves inside this mod's clone, so a build of your own at
 `engine/bin/<os>-<arch>/doom` needs no setting at all.
 
 ## The WADs, both of which ship here
@@ -200,7 +200,7 @@ The reference thurbox source inspected at `c8fe7d38` requests only escape disamb
 and encodes keys without event types. Smooth held controls inside that host require
 a separate host change to request and forward repeat/release events to program
 surfaces. A modern outer terminal alone does not bypass this limitation. The host
-checkout and the installed plugin were not changed by this engine fix.
+checkout and the installed mod were not changed by this engine fix.
 
 The reported near-90° turn is expected from the old timing fallback, **not a discrete
 turn binding**: one arrow press stays down for 700 ms and accumulates incremental
@@ -281,7 +281,7 @@ viewport. `python3 tests/graphics_output.py` decodes both image protocols and
 compares them with real engine frames, checks turning cadence and input during
 blocked image output, and verifies normal-exit cleanup. Ghostty pixel rendering
 was also exercised on a private display; Windows Terminal presentation with this
-revision still needs manual validation. The installed plugin is unchanged.
+revision still needs manual validation. The installed mod is unchanged.
 
 Other ports keep keyboard handling in their platform frontend too:
 [Terminal Doom](https://github.com/cryptocode/terminal-doom/blob/35ab605e37e92616417bc901b2762599fc979a72/src/main.zig)
@@ -308,7 +308,7 @@ unreachable. That was wrong. The reserved set is `ctrl+q`, `f10`, `ctrl+h`, `ctr
 and `f12`; `tab` is forwarded to the focused pane on purpose, because every coding
 agent needs it for completion. **The automap works.** The kernel's own `F1` help and
 `docs/PLUGINS.md` claimed otherwise; both were fixed upstream — in the commit "stop
-claiming tab moves focus, because it does not" — after this plugin reported it.
+claiming tab moves focus, because it does not" — after this mod reported it.
 
 ## What this deliberately is not
 
@@ -321,7 +321,7 @@ it: the cells never pass through Lua.
 
 The Linux engine binary ships beside its corresponding GPL source. Build output
 belongs outside the watched interface directory; copy only the finished binary
-into an isolated plugin copy when testing another build.
+into an isolated mod copy when testing another build.
 
 ## Credits
 
@@ -332,7 +332,7 @@ into an isolated plugin copy when testing another build.
 
 ## Licences
 
-This plugin is MIT (see [`LICENSE`](LICENSE)) — Copyright (c) 2026 Thurbeen, matching
+This mod is MIT (see [`LICENSE`](LICENSE)) — Copyright (c) 2026 Thurbeen, matching
 `Thurbeen/thurbox`.
 
 **`engine/` is GPL-2.0**, not MIT: it is DOOM's source and a binary built from it.
@@ -352,9 +352,9 @@ permission. A commercial WAD you supply yourself is your own affair.
 ## Checks
 
 `bash scripts/check.sh` runs Lua formatting, engine timing and PTY input tests,
-the media check, and isolated plugin loading.
+the media check, and isolated mod loading.
 `tests/standalone.sh` loads this pane beside code-review with and without the
 Doom tab and fails unless `doom.open` is declared exactly once.
 The agent-pane integration is exercised by `tests/run.sh --render` in
-thurbox-code-review and by `thurbox-cli plugin check` after installing both plugins.
+thurbox-code-review and by `thurbox-cli mod check` after installing both mods.
 `tests/demo_media.sh` checks that the committed demo keeps gameplay in every frame.
